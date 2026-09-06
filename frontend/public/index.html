@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scolarité Numérique — File d'Attente Intelligente</title>
+    
+    <!-- Google Fonts Preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    
+    <!-- Fonts: Inter, Outfit, Hanken Grotesk, Material Symbols -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+      rel="stylesheet"
+    />
+
+    <!-- Tailwind CSS Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#00204d",
+              "primary-container": "#1d4ed8",
+              "on-primary": "#ffffff",
+              "on-primary-container": "#cad3ff",
+              "primary-fixed": "#d1e4ff",
+              "primary-fixed-dim": "#b0c9e8",
+              "on-primary-fixed": "#001551",
+              "on-primary-fixed-variant": "#314863",
+              "inverse-primary": "#b0c9e8",
+              "secondary": "#00687a",
+              "secondary-container": "#57dffe",
+              "on-secondary": "#ffffff",
+              "on-secondary-container": "#00476e",
+              "secondary-fixed": "#cce5ff",
+              "secondary-fixed-dim": "#93ccff",
+              "on-secondary-fixed": "#001f26",
+              "on-secondary-fixed-variant": "#004e5c",
+              "tertiary": "#004f35",
+              "tertiary-container": "#006a48",
+              "on-tertiary": "#ffffff",
+              "on-tertiary-container": "#21a173",
+              "tertiary-fixed": "#85f8c4",
+              "tertiary-fixed-dim": "#68dba9",
+              "on-tertiary-fixed": "#002114",
+              "on-tertiary-fixed-variant": "#005137",
+              "background": "#f8f9ff",
+              "on-background": "#0b1c30",
+              "surface": "#f8f9ff",
+              "on-surface": "#0b1c30",
+              "surface-bright": "#faf8ff",
+              "surface-dim": "#d2d9f4",
+              "surface-variant": "#dae2fd",
+              "on-surface-variant": "#434655",
+              "surface-container-lowest": "#ffffff",
+              "surface-container-low": "#f2f4fc",
+              "surface-container": "#e8edfb",
+              "surface-container-high": "#dce4f7",
+              "surface-container-highest": "#d3e0f5",
+              "inverse-surface": "#213145",
+              "inverse-on-surface": "#eaf1ff",
+              "outline": "#74777e",
+              "outline-variant": "#c3c6ce",
+              "surface-tint": "#2151da",
+              "error": "#ba1a1a",
+              "error-container": "#ffdad6",
+              "on-error": "#ffffff",
+              "on-error-container": "#93000a"
+            },
+            borderRadius: {
+              DEFAULT: "0.25rem",
+              lg: "0.5rem",
+              xl: "0.75rem",
+              full: "9999px"
+            },
+            spacing: {
+              "space-2xs": "0.25rem",
+              "space-xs": "0.5rem",
+              "space-sm": "0.75rem",
+              "space-md": "1rem",
+              "space-lg": "1.5rem",
+              "space-xl": "2rem",
+              "space-2xl": "3rem",
+              "space-3xl": "4rem",
+              "margin-page-desktop": "2rem",
+              "margin-page-mobile": "1rem",
+              "gutter-desktop": "1.5rem",
+              "gutter-mobile": "1rem",
+              "container-max": "80rem"
+            },
+            fontFamily: {
+              "body-md": ["Hanken Grotesk", "Inter", "sans-serif"],
+              "body-sm": ["Hanken Grotesk", "Inter", "sans-serif"],
+              "body-lg": ["Hanken Grotesk", "Inter", "sans-serif"],
+              "display": ["Outfit", "sans-serif"],
+              "display-mobile": ["Outfit", "sans-serif"],
+              "display-ticket-mobile": ["Outfit", "sans-serif"],
+              "display-ticket-wall": ["Outfit", "sans-serif"],
+              "headline-lg": ["Outfit", "sans-serif"],
+              "headline-md": ["Outfit", "sans-serif"],
+              "headline-sm": ["Outfit", "sans-serif"],
+              "label-sm": ["Hanken Grotesk", "sans-serif"],
+              "label-md": ["Hanken Grotesk", "sans-serif"],
+              "label-lg": ["Hanken Grotesk", "sans-serif"],
+              "label-caption": ["Inter", "sans-serif"],
+              "label-counter-badge": ["Outfit", "sans-serif"],
+              "label-ticket-mono": ["Inter", "monospace"]
+            },
+            fontSize: {
+              "body-sm": ["13px", { lineHeight: "18px", fontWeight: "400" }],
+              "body-md": ["15px", { lineHeight: "24px", fontWeight: "400" }],
+              "body-lg": ["18px", { lineHeight: "28px", fontWeight: "400" }],
+              "headline-sm": ["20px", { lineHeight: "28px", fontWeight: "600" }],
+              "headline-md": ["24px", { lineHeight: "32px", letterSpacing: "-0.01em", fontWeight: "700" }],
+              "headline-lg": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "700" }],
+              "display": ["48px", { lineHeight: "56px", letterSpacing: "-0.03em", fontWeight: "800" }],
+              "display-ticket-mobile": ["44px", { lineHeight: "52px", letterSpacing: "-0.02em", fontWeight: "800" }],
+              "display-ticket-wall": ["64px", { lineHeight: "72px", letterSpacing: "-0.03em", fontWeight: "900" }],
+              "label-sm": ["11px", { lineHeight: "14px", letterSpacing: "0.04em", fontWeight: "700" }],
+              "label-md": ["12px", { lineHeight: "16px", letterSpacing: "0.02em", fontWeight: "600" }],
+              "label-lg": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }],
+              "label-caption": ["12px", { lineHeight: "16px", letterSpacing: "0.02em", fontWeight: "500" }],
+              "label-counter-badge": ["13px", { lineHeight: "16px", letterSpacing: "0.04em", fontWeight: "700" }],
+              "label-ticket-mono": ["20px", { lineHeight: "24px", letterSpacing: "0.06em", fontWeight: "700" }]
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-white">
+    <noscript>Vous devez activer JavaScript pour utiliser l'application de file d'attente.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

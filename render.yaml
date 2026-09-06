@@ -1,0 +1,39 @@
+# Render Blueprint — Gestion File d'Attente UIR
+# https://render.com/docs/blueprint-spec
+
+services:
+  # ── Backend Flask API ──────────────────────────────────────────────────────
+  - type: web
+    name: gestion-patientes-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: DB_NAME
+        value: file_attente
+      - key: PYTHON_VERSION
+        value: "3.11.4"
+    plan: free
+
+  # ── Frontend React (Static Site) ──────────────────────────────────────────
+  - type: web
+    name: gestion-patientes-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false
+    plan: free
