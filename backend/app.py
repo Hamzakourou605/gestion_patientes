@@ -1,5 +1,5 @@
 """
-API Flask - Gestion de file d'attente (7 guichets)
+API Flask - Gestion de file d'attente (16 guichets)
 ---------------------------------------------------
 Résumé du fonctionnement :
 
@@ -10,7 +10,7 @@ Résumé du fonctionnement :
 - Chaque guichet possède un compte (numero + mot de passe). Une fois connecté,
   le guichet voit :
     * son client en cours (s'il y en a un) et sa propre file d'attente,
-    * la file d'attente globale des 7 guichets,
+    * la file d'attente globale des 16 guichets,
     * ses statistiques (jour / semaine / mois).
 - Un guichet clique sur "Client suivant" pour appeler le prochain ticket de SA file.
 - Une fois le client traité, le guichet clique sur :

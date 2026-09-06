@@ -6,7 +6,7 @@ export default function Accueil() {
     <div>
       <h1 style={{ marginBottom: 6 }}>Gestion de la file d'attente</h1>
       <p style={{ color: "var(--muted)", marginBottom: 26 }}>
-        7 guichets, deux files (Master / Bachelier), 4 types de services.
+        16 guichets, deux files (Master / Bachelier), 4 pôles de services.
       </p>
       <div className="home-grid">
         <Link to="/kiosk" className="home-card">

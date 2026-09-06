@@ -23,7 +23,7 @@ export default function Header({ currentGuichet = 3 }) {
             <div className="flex items-center gap-space-2xs mt-0.5">
               <span className="inline-block w-2 h-2 rounded-full bg-on-tertiary-container animate-pulse"></span>
               <span className="font-label-caption text-label-caption text-secondary font-semibold">
-                Accueil des étudiants • 7 guichets ouverts
+                Accueil des étudiants • 16 guichets ouverts
               </span>
             </div>
           </div>

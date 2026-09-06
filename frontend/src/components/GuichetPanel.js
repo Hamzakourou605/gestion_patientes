@@ -92,7 +92,7 @@ export default function GuichetPanel() {
   const refreshGuichets = useCallback(async () => {
     try {
       const res = await getGuichets();
-      const list = res?.guichets || [];
+      const list = Array.isArray(res) ? res : res?.guichets || [];
       setAllGuichets(list);
 
       // Find current guichet
@@ -573,7 +573,7 @@ export default function GuichetPanel() {
             <div className="mt-space-md p-space-sm rounded-lg bg-surface-container flex items-center gap-2">
               <span className="material-symbols-outlined text-[16px] text-secondary">alt_route</span>
               <span className="font-label-caption text-label-caption text-on-surface-variant">
-                Routage dynamique : équilibrage automatique de la charge parmi les 7 guichets.
+                Routage dynamique : équilibrage automatique de la charge parmi les 16 postes.
               </span>
             </div>
           </div>
@@ -581,14 +581,14 @@ export default function GuichetPanel() {
 
       </div>
 
-      {/* ZONE 3: VUE GLOBALE DES 7 GUICHETS EN TEMPS RÉEL */}
+      {/* ZONE 3: VUE GLOBALE DES 16 GUICHETS EN TEMPS RÉEL */}
       <div className="w-full bg-surface-container-lowest rounded-xl p-space-lg md:p-space-xl shadow-sm mb-space-xl text-left">
         <div className="flex flex-wrap items-center justify-between gap-space-md mb-space-lg">
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-secondary">grid_view</span>
               <span className="font-headline-md text-headline-md text-on-surface font-bold">
-                File d'attente globale • Panorama des 7 Guichets
+                File d'attente globale • Panorama des 16 Guichets
               </span>
             </div>
             <span className="font-body-sm text-body-sm text-on-surface-variant">
@@ -599,7 +599,7 @@ export default function GuichetPanel() {
           <div className="flex items-center gap-space-sm">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-caption text-label-caption font-semibold">
               <span className="w-2 h-2 rounded-full bg-on-tertiary-container"></span>
-              7/7 Guichets Opérationnels
+              16/16 Guichets Opérationnels
             </span>
             <span className="text-on-surface-variant font-label-caption text-label-caption">
               Total usagers en attente : <strong className="text-on-surface font-bold">{totalGlobalWait}</strong>
@@ -607,9 +607,9 @@ export default function GuichetPanel() {
           </div>
         </div>
 
-        {/* 7 Guichets Responsive Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-space-sm">
-          {[1, 2, 3, 4, 5, 6, 7].map((num) => {
+        {/* 16 Guichets Responsive Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-space-sm">
+          {Array.from({ length: 16 }, (_, index) => index + 1).map((num) => {
             const g = allGuichets.find((item) => item.numero === num);
             const isCurrent = num === guichetNum;
             const currentTicketNum = g?.ticket_en_cours ? g.ticket_en_cours.numero : "—";
@@ -633,7 +633,7 @@ export default function GuichetPanel() {
                       isCurrent ? "text-secondary" : "text-on-surface"
                     }`}
                   >
-                    G-0{num} {isCurrent && "(Vous)"}
+                    G-{String(num).padStart(2, "0")} {isCurrent && "(Vous)"}
                   </span>
                   <span
                     className={`w-2 h-2 rounded-full ${
@@ -705,7 +705,7 @@ export default function GuichetPanel() {
                     : "text-on-surface-variant hover:text-on-surface"
                 }`}
               >
-                Tous les 7 guichets
+                Tous les 16 guichets
               </button>
             </div>
 
@@ -814,7 +814,7 @@ export default function GuichetPanel() {
                 <span className="w-3 h-3 rounded-sm bg-primary"></span> Mon Guichet (G{guichetNum})
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-sm bg-secondary-fixed-dim"></span> Moyenne 7 guichets
+                <span className="w-3 h-3 rounded-sm bg-secondary-fixed-dim"></span> Moyenne 16 guichets
               </span>
             </div>
           </div>
