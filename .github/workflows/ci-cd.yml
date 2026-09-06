@@ -1,0 +1,112 @@
+name: CI/CD Pipeline - Gestion File d'Attente UIR
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # ─── 1. Backend CI (Python / Flask / Pytest) ──────────────────────────────
+  backend-ci:
+    name: 🐍 Backend Tests & Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "backend/requirements*.txt"
+
+      - name: 📦 Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+
+      - name: 🔍 Lint & Syntax Check (flake8)
+        run: |
+          # Stop build on syntax errors or undefined names
+          flake8 backend --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warning checks
+          flake8 backend --count --exit-zero --max-complexity=15 --max-line-length=127 --statistics
+
+      - name: 🧪 Run Pytest Suite
+        env:
+          MONGO_URI: "mongodb://localhost:27017"
+          DB_NAME: "test_file_attente"
+        run: |
+          python -m pytest backend/tests -v
+
+  # ─── 2. Frontend CI (Node / React / Build) ────────────────────────────────
+  frontend-ci:
+    name: ⚛️ Frontend Build & Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "frontend/package*.json"
+
+      - name: 📦 Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: 🧪 Run Frontend Tests
+        working-directory: frontend
+        run: npm test -- --watchAll=false --passWithNoTests
+
+      - name: 🏗️ Build Production Bundle
+        working-directory: frontend
+        env:
+          CI: "false"
+        run: npm run build
+
+  # ─── 3. Continuous Deployment (Render Auto-Deploy & Webhook) ──────────────
+  deploy-render:
+    name: 🚀 Deploy to Render
+    needs: [backend-ci, frontend-ci]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 📡 Trigger Render Backend Deploy Hook (if configured)
+        if: env.RENDER_BACKEND_HOOK != ''
+        env:
+          RENDER_BACKEND_HOOK: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK }}
+        run: |
+          echo "Triggering backend redeploy on Render..."
+          curl -X POST -f "$RENDER_BACKEND_HOOK"
+
+      - name: 📡 Trigger Render Frontend Deploy Hook (if configured)
+        if: env.RENDER_FRONTEND_HOOK != ''
+        env:
+          RENDER_FRONTEND_HOOK: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK }}
+        run: |
+          echo "Triggering frontend redeploy on Render..."
+          curl -X POST -f "$RENDER_FRONTEND_HOOK"
+
+      - name: 📋 Deployment Report
+        run: |
+          echo "=========================================================="
+          echo "✅ CI/CD Pipeline Passed Successfully!"
+          echo "📦 Backend: Tested with Pytest (16 Desks, 4 Poles, Services)"
+          echo "⚛️ Frontend: React bundle verified and built"
+          echo "🚀 Render: Auto-deploy triggered via GitHub main branch"
+          echo "🌐 Repo: https://github.com/Hamzakourou605/gestion_patientes"
+          echo "=========================================================="

@@ -4,6 +4,9 @@ import axios from "axios";
 // En production, mettez ici l'URL complète de votre API (ex: variable d'environnement).
 const api = axios.create({
   baseURL: process.env.REACT_APP_API_URL || "/api",
+  headers: {
+    "Bypass-Tunnel-Reminder": "true", // Évite la page intermédiaire localtunnel
+  },
 });
 
 export const getServices = () => api.get("/services").then((r) => r.data);
@@ -30,5 +33,8 @@ export const getStatistiques = (periode, guichet) =>
     .then((r) => r.data);
 
 export const getConfig = () => api.get("/config").then((r) => r.data);
+
+export const setConfigTunnel = (tunnelUrl) =>
+  api.post("/config", { tunnel_url: tunnelUrl }).then((r) => r.data);
 
 export default api;

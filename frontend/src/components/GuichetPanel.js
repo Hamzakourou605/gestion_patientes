@@ -7,14 +7,40 @@ import {
   login
 } from "../api";
 
+const ALL_DESKS = [
+  // 4 Inscription
+  { numero: 1, nom: "Guichet Inscription 1", pole: "inscription", label: "G1 Inscription" },
+  { numero: 2, nom: "Guichet Inscription 2", pole: "inscription", label: "G2 Inscription" },
+  { numero: 3, nom: "Guichet Inscription 3", pole: "inscription", label: "G3 Inscription" },
+  { numero: 4, nom: "Guichet Inscription 4", pole: "inscription", label: "G4 Inscription" },
+  // 2 Concours
+  { numero: 5, nom: "Guichet Concours 1", pole: "concours", label: "Concours 1" },
+  { numero: 6, nom: "Guichet Concours 2", pole: "concours", label: "Concours 2" },
+  // 8 Caisses de Paiement
+  { numero: 7, nom: "Caisse Paiement 1", pole: "paiement", label: "Caisse 1" },
+  { numero: 8, nom: "Caisse Paiement 2", pole: "paiement", label: "Caisse 2" },
+  { numero: 9, nom: "Caisse Paiement 3", pole: "paiement", label: "Caisse 3" },
+  { numero: 10, nom: "Caisse Paiement 4", pole: "paiement", label: "Caisse 4" },
+  { numero: 11, nom: "Caisse Paiement 5", pole: "paiement", label: "Caisse 5" },
+  { numero: 12, nom: "Caisse Paiement 6", pole: "paiement", label: "Caisse 6" },
+  { numero: 13, nom: "Caisse Paiement 7", pole: "paiement", label: "Caisse 7" },
+  { numero: 14, nom: "Caisse Paiement 8", pole: "paiement", label: "Caisse 8" },
+  // 2 Service Numérique (Dernière étape)
+  { numero: 15, nom: "Service Numérique 1", pole: "numerique", label: "Numérique 1" },
+  { numero: 16, nom: "Service Numérique 2", pole: "numerique", label: "Numérique 2" },
+];
+
 export default function GuichetPanel() {
-  // Current Guichet Number (1 to 7)
+  // Current Guichet Number (1 to 16)
   const [guichetNum, setGuichetNum] = useState(() => {
-    return parseInt(localStorage.getItem("guichet_numero") || "3", 10);
+    return parseInt(localStorage.getItem("guichet_numero") || "1", 10);
   });
   const [isLoggedIn, setIsLoggedIn] = useState(true);
   const [passwordInput, setPasswordInput] = useState("guichet123");
   const [loginError, setLoginError] = useState("");
+
+  const currentDesk = ALL_DESKS.find((d) => d.numero === guichetNum) || ALL_DESKS[0];
+  const pole = currentDesk.pole;
 
   // Operator data & active ticket
   const [allGuichets, setAllGuichets] = useState([]);
@@ -204,24 +230,39 @@ export default function GuichetPanel() {
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-surface-container-lowest rounded-2xl max-w-sm w-full p-space-lg shadow-2xl text-left">
             <h3 className="font-headline-sm text-headline-sm font-bold text-on-surface mb-2">
-              Connexion Guichet {guichetNum}
+              Connexion {currentDesk.nom}
             </h3>
             <p className="font-label-caption text-on-surface-variant mb-4">
               Mot de passe par défaut : <code className="bg-surface-container px-1 rounded">guichet123</code>
             </p>
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-on-surface mb-1">Numéro de guichet</label>
+                <label className="block text-xs font-semibold text-on-surface mb-1">Poste opérateur</label>
                 <select
                   value={guichetNum}
                   onChange={(e) => setGuichetNum(parseInt(e.target.value, 10))}
-                  className="w-full p-2.5 rounded-lg border border-outline-variant bg-surface-container-low text-on-surface"
+                  className="w-full p-2.5 rounded-lg border border-outline-variant bg-surface-container-low text-on-surface text-sm"
                 >
-                  {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-                    <option key={n} value={n}>
-                      Guichet {n}
-                    </option>
-                  ))}
+                  <optgroup label="🎓 Inscriptions (4 Guichets)">
+                    {ALL_DESKS.filter((d) => d.pole === "inscription").map((d) => (
+                      <option key={d.numero} value={d.numero}>{d.nom}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="🏆 Concours (2 Postes)">
+                    {ALL_DESKS.filter((d) => d.pole === "concours").map((d) => (
+                      <option key={d.numero} value={d.numero}>{d.nom}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="💳 Caisses de Paiement (8 Caisses)">
+                    {ALL_DESKS.filter((d) => d.pole === "paiement").map((d) => (
+                      <option key={d.numero} value={d.numero}>{d.nom}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="💻 Service Numérique (2 Postes - Dernière étape)">
+                    {ALL_DESKS.filter((d) => d.pole === "numerique").map((d) => (
+                      <option key={d.numero} value={d.numero}>{d.nom}</option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
               <div>
@@ -249,12 +290,12 @@ export default function GuichetPanel() {
       <div className="w-full bg-surface-container-lowest rounded-xl p-space-lg shadow-sm mb-space-lg flex flex-wrap items-center justify-between gap-space-md">
         <div className="flex items-center gap-space-md min-w-0 text-left">
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-on-primary shadow-sm flex-shrink-0 font-bold">
-            <span className="font-headline-sm text-headline-sm">0{guichetNum}</span>
+            <span className="font-headline-sm text-headline-sm">{guichetNum < 10 ? `0${guichetNum}` : guichetNum}</span>
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-space-xs flex-wrap">
               <span className="font-headline-sm text-headline-sm text-on-surface font-bold">
-                Guichet N° {guichetNum}
+                {currentDesk.nom}
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-counter-badge text-label-counter-badge font-bold">
                 <span className="w-2 h-2 rounded-full bg-on-tertiary-container animate-pulse"></span>
@@ -262,7 +303,7 @@ export default function GuichetPanel() {
               </span>
             </div>
             <span className="font-body-sm text-body-sm text-on-surface-variant truncate">
-              Poste opérationnel • Scolarité Générale, Master &amp; Bachelier
+              Pôle : {currentDesk.pole === "inscription" ? "Accueil & Inscriptions" : currentDesk.pole === "concours" ? "Service Concours" : currentDesk.pole === "paiement" ? "Caisse d'Encaissement" : "Service Numérique (Dernière étape)"}
             </span>
           </div>
         </div>
@@ -270,26 +311,19 @@ export default function GuichetPanel() {
         {/* Right utility actions */}
         <div className="flex items-center gap-space-sm flex-shrink-0">
           {/* Switch guichet quickly */}
-          <div className="flex items-center gap-1 bg-surface-container p-1 rounded-lg">
-            <span className="text-xs text-on-surface-variant px-1 font-semibold">Changer :</span>
-            {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-              <button
-                key={num}
-                onClick={() => setGuichetNum(num)}
-                className={`w-7 h-7 rounded text-xs font-bold transition-all ${
-                  guichetNum === num
-                    ? "bg-primary text-on-primary shadow-xs"
-                    : "text-on-surface-variant hover:bg-surface-container-high"
-                }`}
-              >
-                {num}
-              </button>
-            ))}
-          </div>
-
-          <div className="hidden sm:flex items-center gap-2 bg-surface-container px-space-md py-space-xs rounded-lg text-on-surface-variant font-label-caption text-label-caption">
-            <span className="material-symbols-outlined text-[16px] text-secondary">encrypted</span>
-            <span>Poste G{guichetNum}-SEC</span>
+          <div className="flex items-center gap-2 bg-surface-container p-1.5 rounded-lg">
+            <span className="text-xs text-on-surface-variant px-1 font-semibold">Poste :</span>
+            <select
+              value={guichetNum}
+              onChange={(e) => setGuichetNum(parseInt(e.target.value, 10))}
+              className="bg-surface-container-high text-on-surface text-xs font-bold px-2 py-1 rounded border-0 cursor-pointer"
+            >
+              {ALL_DESKS.map((d) => (
+                <option key={d.numero} value={d.numero}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <button
@@ -301,7 +335,7 @@ export default function GuichetPanel() {
             }`}
           >
             <span className="material-symbols-outlined text-[18px]">coffee</span>
-            <span>{isPaused ? "Reprendre" : "Mettre en pause"}</span>
+            <span>{isPaused ? "Reprendre" : "Pause"}</span>
           </button>
         </div>
       </div>
@@ -318,94 +352,63 @@ export default function GuichetPanel() {
             <div className="flex flex-wrap items-start justify-between gap-space-md mb-space-lg">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-label-caption text-label-caption uppercase tracking-wider text-secondary font-bold">
-                    Dossier en traitement
+                  <span className="font-label-counter-badge text-label-counter-badge uppercase tracking-wider text-secondary font-bold">
+                    Candidat en cours de traitement
                   </span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-secondary"></span>
-                  <span className="font-label-caption text-label-caption text-on-surface-variant">
-                    Attribution Guichet {guichetNum}
+                  <span className="px-2 py-0.5 rounded-full bg-surface-container font-label-caption text-label-caption text-on-surface-variant font-semibold">
+                    {currentDesk.nom}
                   </span>
                 </div>
-
-                <div className="flex items-baseline gap-space-md my-1">
-                  <span className="font-display-ticket-wall text-display-ticket-wall text-on-surface tracking-tight font-extrabold">
-                    {activeTicket ? activeTicket.numero : "— Aucun —"}
-                  </span>
-                  {activeTicket && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-lg bg-surface-container-high text-secondary font-label-ticket-mono text-label-ticket-mono font-bold">
-                      {activeTicket.type_label || activeTicket.type}
+                <h3 className="font-headline-md text-headline-md font-black text-on-surface tracking-tight mt-1">
+                  {activeTicket ? (
+                    <span className="flex items-center gap-3">
+                      <span className="text-primary font-mono">{activeTicket.numero}</span>
+                      <span className="text-sm font-normal text-on-surface-variant px-3 py-1 bg-surface-container rounded-full">
+                        {activeTicket.type_label} • {activeTicket.service_label}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-on-surface-variant text-base font-normal">
+                      Aucun candidat en cours au guichet
                     </span>
                   )}
-                </div>
-
-                <span className="font-headline-sm text-headline-sm text-on-surface font-semibold">
-                  {activeTicket ? activeTicket.service_label : "Aucun étudiant actuellement au guichet"}
-                </span>
+                </h3>
               </div>
 
-              {/* Dynamic Consultation Timer */}
-              <div className="bg-surface-container-low px-space-lg py-space-md rounded-xl flex flex-col items-end shadow-sm">
-                <span className="font-label-caption text-label-caption text-on-surface-variant uppercase tracking-wider font-semibold">
-                  Durée d'entretien
-                </span>
-                <div className="flex items-center gap-2 mt-1">
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full ${
-                      activeTicket ? "bg-error animate-ping" : "bg-outline"
-                    }`}
-                  ></span>
-                  <span className="font-display-ticket-mobile text-display-ticket-mobile text-on-surface font-extrabold font-mono tracking-normal">
-                    {activeTicket ? formatTimer(sessionSeconds) : "00:00"}
-                  </span>
-                </div>
-                <span className="font-label-caption text-label-caption text-on-surface-variant mt-1">
-                  Statut : {activeTicket ? "En cours" : "Libre"}
+              {/* Consultation timer */}
+              <div className="flex items-center gap-3 bg-surface-container px-space-md py-2 rounded-xl">
+                <span className="material-symbols-outlined text-secondary text-[20px]">timer</span>
+                <span className="font-mono font-bold text-sm text-on-surface">
+                  {formatTimer(sessionSeconds)}
                 </span>
               </div>
             </div>
 
-            {/* Student summary / Dossier Snapshot */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-space-sm bg-surface-container-low p-space-md rounded-lg mb-space-lg">
-              <div className="flex flex-col">
-                <span className="font-label-caption text-label-caption text-on-surface-variant">Matricule Dossier</span>
-                <span className="font-body-md text-body-md font-semibold text-on-surface">
-                  {activeTicket ? `SC-${activeTicket.numero}-2026` : "—"}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="font-label-caption text-label-caption text-on-surface-variant">Filière concernée</span>
-                <span className="font-body-md text-body-md font-semibold text-on-surface">
-                  {activeTicket ? activeTicket.type_label : "—"}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="font-label-caption text-label-caption text-on-surface-variant">Pièces jointes</span>
-                <span className="font-body-md text-body-md font-semibold text-on-tertiary-container flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[16px]">verified</span>
-                  {activeTicket ? "Conformes (Vérifiées)" : "En attente"}
-                </span>
-              </div>
-            </div>
-
-            {/* ACTION BAR / DISPOSITION BUTTONS */}
-            <div className="flex flex-col gap-space-md">
-              <div className="flex items-center justify-between">
-                <span className="font-label-caption text-label-caption uppercase tracking-wider text-on-surface-variant font-semibold">
-                  Clôturer ou Réorienter le client en cours :
+            {/* ACTION BUTTONS TAILORED TO CURRENT DESK ROLE */}
+            <div>
+              <div className="flex items-center justify-between mb-space-sm">
+                <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+                  Actions de clôture &amp; réorientation :
                 </span>
                 <button
                   onClick={handleRecall}
                   disabled={!activeTicket}
-                  className="flex items-center gap-1.5 text-secondary hover:text-on-secondary-container font-label-caption text-label-caption font-semibold px-2.5 py-1 rounded bg-secondary-fixed/50 hover:bg-secondary-fixed transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-xs text-secondary hover:text-on-secondary-container font-bold flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <span className="material-symbols-outlined text-[16px]">campaign</span>
-                  Rappeler le client (Bip sonore)
+                  Rappeler le client (Bip)
                 </button>
               </div>
 
-              {/* The 3 Action Buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-space-sm">
-                {/* 1. Terminer visite */}
+              <div className={`grid gap-space-sm ${
+                pole === "inscription" || pole === "concours"
+                  ? "grid-cols-1 sm:grid-cols-3"
+                  : pole === "paiement"
+                  ? "grid-cols-1 sm:grid-cols-2"
+                  : "grid-cols-1"
+              }`}>
+
+                {/* 1. Terminer visite (Always present) */}
                 <button
                   onClick={() =>
                     handleCloture(
@@ -421,68 +424,76 @@ export default function GuichetPanel() {
                     <span className="material-symbols-outlined text-tertiary-fixed text-[22px] group-hover:scale-110 transition-transform">
                       task_alt
                     </span>
-                    <span className="font-headline-sm text-headline-sm font-bold">Visite terminée</span>
+                    <span className="font-headline-sm text-headline-sm font-bold">
+                      {pole === "numerique" ? "Clôture Finale Dossier" : "Visite terminée"}
+                    </span>
                   </div>
                   <span className="font-label-caption text-label-caption text-primary-fixed-dim">
-                    Dossier finalisé &amp; clos
+                    {pole === "numerique" ? "Fin définitive du parcours étudiant" : "Dossier finalisé & clos"}
                   </span>
                 </button>
 
-                {/* 2. Réorienter Numérique */}
-                <button
-                  onClick={() =>
-                    handleCloture(
-                      "service_numerique",
-                      "Réorientation Numérique",
-                      `Le ticket ${activeTicket?.numero} repart en file avec le service "Service Numérique".`
-                    )
-                  }
-                  disabled={!activeTicket}
-                  className="flex flex-col items-center justify-center p-space-md rounded-xl bg-secondary text-on-secondary hover:bg-on-secondary-container transition-all shadow-sm group text-center disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="material-symbols-outlined text-[22px] group-hover:rotate-45 transition-transform">
-                      devices
+                {/* 2. Réorienter Numérique (Inscription, Concours, Paiement) */}
+                {(pole === "inscription" || pole === "concours" || pole === "paiement") && (
+                  <button
+                    onClick={() =>
+                      handleCloture(
+                        "service_numerique",
+                        "Transfert Service Numérique",
+                        `Le ticket ${activeTicket?.numero} est transféré vers le Service Numérique (Dernière étape).`
+                      )
+                    }
+                    disabled={!activeTicket}
+                    className="flex flex-col items-center justify-center p-space-md rounded-xl bg-secondary text-on-secondary hover:bg-on-secondary-container transition-all shadow-sm group text-center disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="material-symbols-outlined text-[22px] group-hover:rotate-45 transition-transform">
+                        devices
+                      </span>
+                      <span className="font-headline-sm text-headline-sm font-bold">
+                        {pole === "paiement" ? "Passer au Service Numérique" : "Pôle Numérique (2 Postes)"}
+                      </span>
+                    </div>
+                    <span className="font-label-caption text-label-caption text-secondary-fixed">
+                      {pole === "paiement" ? "Dernière étape après paiement" : "Postes 15 & 16 (Moins chargé)"}
                     </span>
-                    <span className="font-headline-sm text-headline-sm font-bold">Pôle Numérique</span>
-                  </div>
-                  <span className="font-label-caption text-label-caption text-secondary-fixed">
-                    Réinjecter (Moins chargé)
-                  </span>
-                </button>
+                  </button>
+                )}
 
-                {/* 3. Réorienter Paiement / AVP */}
-                <button
-                  onClick={() =>
-                    handleCloture(
-                      "avp_paiement",
-                      "Réorientation Paiement",
-                      `Le ticket ${activeTicket?.numero} repart vers le guichet de paiement.`
-                    )
-                  }
-                  disabled={!activeTicket}
-                  className="flex flex-col items-center justify-center p-space-md rounded-xl bg-primary-container text-on-primary hover:bg-primary transition-all shadow-sm group text-center disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="material-symbols-outlined text-[22px] text-secondary-fixed-dim group-hover:scale-110 transition-transform">
-                      payments
+                {/* 3. Réorienter Paiement (Seulement pour Inscription et Concours) */}
+                {(pole === "inscription" || pole === "concours") && (
+                  <button
+                    onClick={() =>
+                      handleCloture(
+                        "avp_paiement",
+                        "Transfert Caisses Paiement",
+                        `Le ticket ${activeTicket?.numero} est transféré vers une Caisse de Paiement (8 Caisses disponibles).`
+                      )
+                    }
+                    disabled={!activeTicket}
+                    className="flex flex-col items-center justify-center p-space-md rounded-xl bg-primary-container text-on-primary hover:bg-primary transition-all shadow-sm group text-center disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="material-symbols-outlined text-[22px] text-secondary-fixed-dim group-hover:scale-110 transition-transform">
+                        payments
+                      </span>
+                      <span className="font-headline-sm text-headline-sm font-bold">Paiement (8 Caisses)</span>
+                    </div>
+                    <span className="font-label-caption text-label-caption text-on-primary-container">
+                      Caisses 1 à 8 (Moins chargée)
                     </span>
-                    <span className="font-headline-sm text-headline-sm font-bold">Paiement / AVP</span>
-                  </div>
-                  <span className="font-label-caption text-label-caption text-on-primary-container">
-                    Vers Guichet Encaissement
-                  </span>
-                </button>
+                  </button>
+                )}
               </div>
 
-              {/* Call Next Button with constraint notice */}
+              {/* Call Next Button */}
               <div className="pt-space-md flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-space-md">
                 <div className="flex items-center gap-2 px-space-md py-space-xs bg-surface-container rounded-lg flex-1">
                   <span className="material-symbols-outlined text-outline text-[18px] flex-shrink-0">info</span>
                   <span className="font-label-caption text-label-caption text-on-surface-variant">
                     {activeTicket
-                      ? "Bouton désactivé : veuillez d'abord clôturer le client actuel avant d'appeler le suivant."
-                      : "Prêt : cliquez sur 'Client suivant' pour appeler le prochain ticket de votre file."}
+                      ? "Veuillez clôturer le candidat en cours avant d'appeler le suivant."
+                      : "Prêt : cliquez sur 'Candidat suivant' pour appeler le prochain ticket."}
                   </span>
                 </div>
 
@@ -496,7 +507,7 @@ export default function GuichetPanel() {
                   }`}
                 >
                   <span className="material-symbols-outlined text-[20px]">person_add</span>
-                  <span>Client suivant</span>
+                  <span>Candidat suivant</span>
                 </button>
               </div>
 

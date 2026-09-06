@@ -47,16 +47,59 @@ tickets_col = db["tickets"]
 guichets_col = db["guichets"]
 compteurs_col = db["compteurs"]
 
-NB_GUICHETS = 7
-MOT_DE_PASSE_DEFAUT = "guichet123"  # mot de passe initial de chaque guichet (à changer en prod)
+# ─── Configuration des Pôles et Guichets ──────────────────────────────────
+# Inscription: 4 guichets (1 à 4)
+# Concours:    2 guichets (5, 6)
+# Paiement:    8 caisses (7 à 14)
+# Numérique:   2 guichets (15, 16 - Dernière étape)
+GUICHETS_CONFIG = [
+    {"numero": 1, "nom": "Guichet Inscription 1", "pole": "inscription"},
+    {"numero": 2, "nom": "Guichet Inscription 2", "pole": "inscription"},
+    {"numero": 3, "nom": "Guichet Inscription 3", "pole": "inscription"},
+    {"numero": 4, "nom": "Guichet Inscription 4", "pole": "inscription"},
+    {"numero": 5, "nom": "Guichet Concours 1", "pole": "concours"},
+    {"numero": 6, "nom": "Guichet Concours 2", "pole": "concours"},
+    {"numero": 7, "nom": "Caisse Paiement 1", "pole": "paiement"},
+    {"numero": 8, "nom": "Caisse Paiement 2", "pole": "paiement"},
+    {"numero": 9, "nom": "Caisse Paiement 3", "pole": "paiement"},
+    {"numero": 10, "nom": "Caisse Paiement 4", "pole": "paiement"},
+    {"numero": 11, "nom": "Caisse Paiement 5", "pole": "paiement"},
+    {"numero": 12, "nom": "Caisse Paiement 6", "pole": "paiement"},
+    {"numero": 13, "nom": "Caisse Paiement 7", "pole": "paiement"},
+    {"numero": 14, "nom": "Caisse Paiement 8", "pole": "paiement"},
+    {"numero": 15, "nom": "Service Numérique 1", "pole": "numerique"},
+    {"numero": 16, "nom": "Service Numérique 2", "pole": "numerique"},
+]
+
+NB_GUICHETS = len(GUICHETS_CONFIG)
+MOT_DE_PASSE_DEFAUT = "guichet123"
 
 SERVICES = {
     "inscription_rdv": "Inscription avec Rendez-vous",
     "inscription_master": "Inscription Master / AVP",
-    "avp_paiement": "AVP / Paiement Inscription",
-    "service_numerique": "Service Numérique",
     "inscription_bachelier": "Inscription Bachelier",
-    "autres": "Autres",
+    "concours": "Service Concours",
+    "avp_paiement": "Caisse Paiement (8 Caisses)",
+    "service_numerique": "Service Numérique (Dernière étape)",
+    "autres": "Autres démarches",
+}
+
+# Mapping de chaque service vers son pôle de guichets
+SERVICE_TO_POLE = {
+    "inscription_rdv": "inscription",
+    "inscription_master": "inscription",
+    "inscription_bachelier": "inscription",
+    "autres": "inscription",
+    "concours": "concours",
+    "avp_paiement": "paiement",
+    "service_numerique": "numerique",
+}
+
+POLES_META = {
+    "inscription": {"nom": "Accueil & Inscriptions", "guichets": [1, 2, 3, 4]},
+    "concours": {"nom": "Pôle Concours", "guichets": [5, 6]},
+    "paiement": {"nom": "Caisses de Paiement (8 Caisses)", "guichets": list(range(7, 15))},
+    "numerique": {"nom": "Service Numérique (Dernière étape)", "guichets": [15, 16]},
 }
 
 TYPES = {
@@ -83,23 +126,31 @@ def get_lan_ip():
         return "127.0.0.1"
 
 
+def get_guichet_meta(num):
+    for g in GUICHETS_CONFIG:
+        if g["numero"] == num:
+            return g
+    return {"numero": num, "nom": f"Guichet {num}", "pole": "autre"}
+
 
 # ---------------------------------------------------------------------------
 # Utilitaires
 # ---------------------------------------------------------------------------
 
 def init_guichets():
-    """Crée les 7 guichets avec un compte par défaut s'ils n'existent pas déjà."""
-    for i in range(1, NB_GUICHETS + 1):
+    """Crée ou met à jour les 16 guichets avec leurs noms et pôles."""
+    for cfg in GUICHETS_CONFIG:
         guichets_col.update_one(
-            {"numero": i},
+            {"numero": cfg["numero"]},
             {
                 "$setOnInsert": {
-                    "numero": i,
-                    "nom": f"Guichet {i}",
                     "mot_de_passe_hash": generate_password_hash(MOT_DE_PASSE_DEFAUT),
                     "ticket_en_cours": None,
                     "actif": True,
+                },
+                "$set": {
+                    "nom": cfg["nom"],
+                    "pole": cfg["pole"],
                 }
             },
             upsert=True,
@@ -118,21 +169,36 @@ def prochain_numero(type_):
     return f"{prefixe}-{doc['valeur']:04d}"
 
 
-def guichet_le_moins_charge():
-    """Numéro du guichet ayant le moins de tickets actifs (en_attente + en_cours)."""
-    charges = {i: 0 for i in range(1, NB_GUICHETS + 1)}
+def guichet_le_moins_charge(service=None, pole=None):
+    """Numéro du guichet ayant le moins de tickets actifs dans le pôle approprié."""
+    if not pole and service:
+        pole = SERVICE_TO_POLE.get(service, "inscription")
+
+    candidats = POLES_META.get(pole, {}).get("guichets", [1, 2, 3, 4])
+    charges = {i: 0 for i in candidats}
+
     for row in tickets_col.aggregate(
         [
-            {"$match": {"statut": {"$in": list(STATUTS_ACTIFS)}}},
+            {"$match": {"statut": {"$in": list(STATUTS_ACTIFS)}, "guichet": {"$in": candidats}}},
             {"$group": {"_id": "$guichet", "n": {"$sum": 1}}},
         ]
     ):
         if row["_id"] in charges:
             charges[row["_id"]] = row["n"]
+
     return min(charges, key=lambda n: (charges[n], n))
 
 
 def serialize_ticket(t):
+    g_info = get_guichet_meta(t.get("guichet"))
+    date_c = t.get("date_creation")
+    if isinstance(date_c, datetime):
+        date_str = date_c.isoformat()
+    elif date_c:
+        date_str = str(date_c)
+    else:
+        date_str = datetime.utcnow().isoformat()
+
     return {
         "id": str(t["_id"]),
         "numero": t["numero"],
@@ -141,13 +207,21 @@ def serialize_ticket(t):
         "service": t["service"],
         "service_label": SERVICES.get(t["service"], t["service"]),
         "guichet": t.get("guichet"),
+        "guichet_nom": g_info.get("nom", f"Guichet {t.get('guichet')}"),
+        "pole": g_info.get("pole", "autre"),
         "statut": t["statut"],
-        "date_creation": t["date_creation"].isoformat(),
+        "date_creation": date_str,
     }
 
 
 def serialize_guichet(g):
-    return {"numero": g["numero"], "nom": g.get("nom", f"Guichet {g['numero']}")}
+    g_info = get_guichet_meta(g.get("numero"))
+    return {
+        "numero": g["numero"],
+        "nom": g.get("nom", g_info.get("nom", f"Guichet {g['numero']}")),
+        "pole": g.get("pole", g_info.get("pole", "inscription")),
+        "actif": g.get("actif", True),
+    }
 
 
 def ajouter_historique(ticket_id, action, guichet, service=None):
@@ -208,12 +282,16 @@ def changer_mot_de_passe():
 
 @app.route("/api/health")
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({
+        "status": "healthy",
+        "service": "gestion-patientes-api",
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }), 200
 
 
 @app.route("/api/services")
 def services():
-    return jsonify({"types": TYPES, "services": SERVICES})
+    return jsonify({"types": TYPES, "services": SERVICES, "poles": POLES_META})
 
 
 @app.route("/api/tickets", methods=["POST"])
@@ -229,7 +307,7 @@ def creer_ticket():
         return jsonify({"erreur": "service invalide"}), 400
 
     init_guichets()
-    guichet_choisi = guichet_le_moins_charge()
+    guichet_choisi = guichet_le_moins_charge(service=service)
     numero = prochain_numero(type_)
 
     ticket = {
@@ -251,13 +329,20 @@ def creer_ticket():
     result = tickets_col.insert_one(ticket)
     ticket["_id"] = result.inserted_id
 
-    # position dans la file de ce guichet (nombre de tickets en attente avant lui)
-    position = tickets_col.count_documents(
-        {"guichet": guichet_choisi, "statut": "en_attente", "date_creation": {"$lt": ticket["date_creation"]}}
-    ) + 1
+    # Rangs dans la file :
+    # 1. Rang global parmi tous les tickets en attente
+    rang_global = tickets_col.count_documents(
+        {"statut": "en_attente", "date_creation": {"$lte": ticket["date_creation"]}}
+    )
+    # 2. Position spécifique sur ce guichet
+    position_guichet = tickets_col.count_documents(
+        {"guichet": guichet_choisi, "statut": "en_attente", "date_creation": {"$lte": ticket["date_creation"]}}
+    )
 
     reponse = serialize_ticket(ticket)
-    reponse["position"] = position
+    reponse["position"] = position_guichet
+    reponse["rang"] = rang_global
+    reponse["rang_pole"] = position_guichet
     return jsonify(reponse), 201
 
 
@@ -282,8 +367,7 @@ def lister_tickets():
 
 @app.route("/api/guichets")
 def lister_guichets():
-    """Vue complète des 7 guichets : ticket en cours + file d'attente de chacun.
-    Utilisée à la fois pour l'écran de chaque guichet et pour la 'file d'attente globale'."""
+    """Vue complète des 16 guichets organisés par pôle."""
     init_guichets()
     resultat = []
     for g in guichets_col.find().sort("numero", 1):
@@ -296,13 +380,21 @@ def lister_guichets():
         file_attente = list(
             tickets_col.find({"guichet": g["numero"], "statut": "en_attente"}).sort("date_creation", 1)
         )
+        serialized_queue = []
+        for idx, item in enumerate(file_attente):
+            st = serialize_ticket(item)
+            st["rang_guichet"] = idx + 1
+            serialized_queue.append(st)
+
+        g_meta = get_guichet_meta(g["numero"])
         resultat.append(
             {
                 "numero": g["numero"],
-                "nom": g.get("nom", f"Guichet {g['numero']}"),
+                "nom": g.get("nom", g_meta["nom"]),
+                "pole": g.get("pole", g_meta["pole"]),
                 "actif": g.get("actif", True),
                 "ticket_en_cours": ticket_en_cours,
-                "file_attente": [serialize_ticket(t) for t in file_attente],
+                "file_attente": serialized_queue,
             }
         )
     return jsonify(resultat)
@@ -329,18 +421,18 @@ def client_suivant(numero):
     ajouter_historique(suivant["_id"], "appel", numero)
 
     suivant["statut"] = "en_cours"
-    return jsonify({"ticket_en_cours": serialize_ticket(suivant)})
+    return jsonify({"ticket_en_cours": serialize_ticket(suivant), "ticket": serialize_ticket(suivant)})
 
 
 @app.route("/api/guichets/<int:numero>/terminer", methods=["POST"])
 def terminer(numero):
-    """Clôture le client en cours du guichet.
-    {"action": "termine" | "service_numerique" | "avp_paiement"}
-
-    - termine            -> le ticket est définitivement clos.
-    - service_numerique  -> le MÊME ticket repart en file, réaffecté au guichet
-                             le moins chargé, avec le service "Service Numérique".
-    - avp_paiement       -> pareil, avec le service "AVP / Paiement Inscription".
+    """Clôture ou réorientation du client en cours.
+    Le MÊME numéro suit l'étudiant tout au long de son parcours !
+    
+    Actions possibles :
+    - termine            -> Fin définitive de la visite.
+    - avp_paiement       -> Réaffecté au guichet paiement le moins chargé (Caisses 7 à 14).
+    - service_numerique  -> Réaffecté au poste numérique le moins chargé (Postes 15 & 16, Dernière étape).
     """
     data = request.get_json(force=True) or {}
     action = data.get("action")
@@ -359,11 +451,11 @@ def terminer(numero):
         guichets_col.update_one({"numero": numero}, {"$set": {"ticket_en_cours": None}})
         return jsonify({"message": "visite terminée"})
 
-    # Redirection : même numéro, nouveau service, ré-affectation au guichet le moins chargé
+    # Redirection : Le MÊME numéro repart vers le nouveau service dans le pôle approprié
     guichets_col.update_one({"numero": numero}, {"$set": {"ticket_en_cours": None}})
     ajouter_historique(ticket_id, "redirection", numero, service=action)
 
-    nouveau_guichet = guichet_le_moins_charge()
+    nouveau_guichet = guichet_le_moins_charge(service=action)
     tickets_col.update_one(
         {"_id": ticket_id},
         {
@@ -371,7 +463,7 @@ def terminer(numero):
                 "statut": "en_attente",
                 "service": action,
                 "guichet": nouveau_guichet,
-                "date_creation": datetime.utcnow(),  # remet le ticket en bout de la nouvelle file
+                "date_creation": datetime.utcnow(),
             }
         },
     )
@@ -381,18 +473,51 @@ def terminer(numero):
 
 @app.route("/api/affichage")
 def affichage():
-    """Données pour l'écran public : regroupées par statut (Master / Bachelier)."""
+    """Données complètes pour l'écran public du hall :
+    - En cours à chaque guichet
+    - File d'attente avec RANG (Rang 1, 2, 3...) pour chaque candidat
+    - Regroupement par Pôle (Inscription, Concours, Paiement 8 caisses, Numérique 2 postes)
+    """
     init_guichets()
-    resultat = {}
+    
+    tous_en_cours = list(tickets_col.find({"statut": "en_cours"}).sort("date_creation", 1))
+    tous_en_attente = list(tickets_col.find({"statut": "en_attente"}).sort("date_creation", 1))
+
+    serialized_en_cours = [serialize_ticket(t) for t in tous_en_cours]
+    
+    serialized_attente = []
+    for idx, t in enumerate(tous_en_attente):
+        st = serialize_ticket(t)
+        st["rang"] = idx + 1
+        serialized_attente.append(st)
+
+    # Regroupement par statut (pour compatibilité)
+    par_statut = {}
     for type_ in TYPES:
-        en_cours = list(tickets_col.find({"type": type_, "statut": "en_cours"}).sort("guichet", 1))
-        en_attente = list(tickets_col.find({"type": type_, "statut": "en_attente"}).sort("date_creation", 1))
-        resultat[type_] = {
+        par_statut[type_] = {
             "label": TYPES[type_],
-            "en_cours": [serialize_ticket(t) for t in en_cours],
-            "en_attente": [serialize_ticket(t) for t in en_attente],
+            "en_cours": [t for t in serialized_en_cours if t.get("type") == type_],
+            "en_attente": [t for t in serialized_attente if t.get("type") == type_],
         }
-    return jsonify(resultat)
+
+    # Regroupement par pôle
+    par_pole = {}
+    for pole_key, meta in POLES_META.items():
+        par_pole[pole_key] = {
+            "nom": meta["nom"],
+            "guichets": meta["guichets"],
+            "en_cours": [t for t in serialized_en_cours if t.get("pole") == pole_key],
+            "en_attente": [t for t in serialized_attente if t.get("pole") == pole_key],
+        }
+
+    return jsonify({
+        "en_cours": serialized_en_cours,
+        "attente": serialized_attente,
+        "par_statut": par_statut,
+        "par_pole": par_pole,
+        "total_attente": len(serialized_attente),
+        "total_en_cours": len(serialized_en_cours),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -478,8 +603,18 @@ def statistiques():
 
 
 # ---------------------------------------------------------------------------
-# Config & Tunnel URL
+# Health Check & Config
 # ---------------------------------------------------------------------------
+
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    """Health check endpoint used by CI/CD, Render, and monitoring."""
+    return jsonify({
+        "status": "healthy",
+        "service": "gestion-patientes-api",
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }), 200
+
 
 @app.route("/api/config", methods=["GET", "POST"])
 def config_endpoint():

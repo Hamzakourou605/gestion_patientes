@@ -1,35 +1,31 @@
-# Gestion de file d'attente — 7 guichets (React + Flask + MongoDB)
+# Gestion de File d'Attente Intelligente — UIR (React + Flask + MongoDB)
 
-Application de gestion de file d'attente pour un service de scolarité :
-un étudiant scanne un code, choisit son statut (Master / Bachelier) puis son
-service, et reçoit un ticket numéroté automatiquement affecté au guichet le
-moins chargé parmi 7.
+[![CI/CD Pipeline](https://github.com/Hamzakourou605/gestion_patientes/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Hamzakourou605/gestion_patientes/actions/workflows/ci-cd.yml)
 
-## Fonctionnalités
+Application complète de gestion de file d'attente pour la scolarité et l'accueil des étudiants à l'**Université Internationale de Rabat (UIR)** :
+- Scan QR code sans contact depuis smartphone sur n'importe quel réseau (3G, 4G, 5G, Wi-Fi).
+- **16 Postes organisés en 4 Pôles** :
+  1. 🎓 **Accueil & Inscriptions** (4 Guichets : Guichets 1 à 4)
+  2. 🏆 **Pôle Concours** (2 Postes : Concours 1 & 2)
+  3. 💳 **Caisses de Paiement** (8 Caisses : Caisses 1 à 8)
+  4. 💻 **Service Numérique** (2 Postes : Numérique 1 & 2 — Dernière étape)
+- **Parcours Continu de l'Étudiant** : le **MÊME numéro** suit l'étudiant lors des transferts (ex: Inscription ➜ Paiement ➜ Service Numérique).
+- **Grand Écran Public** : format plein écran sans défilement (`h-screen overflow-hidden`) affichant le dernier appel, les postes actifs, et la file d'attente complète avec le **RANG PRÉCIS** de chaque candidat.
+- **Pipeline CI/CD Automatisé** via GitHub Actions (Tests Pytest, Linting flake8, Build React, et Déploiement Render).
 
-- **Ticket automatique** : numéroté `M-0001` / `B-0001` (séquence propre à
-  chaque statut), affecté au guichet le moins chargé parmi les 7 guichets.
-- **Bornes / scan** (`/kiosk`) : l'étudiant choisit Master ou Bachelier, puis
-  un service : *Inscription Master*, *AVP / Paiement Inscription*,
-  *Service Numérique*, *Autres*. Il reçoit son ticket avec son numéro et le
-  guichet à rejoindre.
-- **Écran d'affichage public** (`/affichage`) : numéro en cours à chaque
-  guichet, pour Master et Bachelier.
-- **Compte guichet** (`/guichet`) : chaque guichet (1 à 7) a son propre
-  compte (mot de passe par défaut `guichet123`, modifiable via l'API). Une
-  fois connecté, le guichet voit :
-  - son **client en cours** et sa **propre file d'attente**,
-  - la **file d'attente globale** des 7 guichets (numéro en cours + nombre
-    en attente à chacun),
-  - ses **statistiques** du jour / des 7 derniers jours / des 30 derniers
-    jours (globales ou pour son guichet uniquement).
-- **Appel du client suivant** : bouton *Client suivant*, désactivé tant
-  qu'un client est déjà en cours à ce guichet.
-- **Clôture du client en cours**, avec 3 choix :
-  - *Visite terminée* → le ticket est définitivement clos ;
-  - *Service numérique* → le **même numéro** repart en file, réaffecté au
-    guichet le moins chargé, avec le service "Service Numérique" ;
-  - *Paiement inscription* → pareil, avec le service "AVP / Paiement".
+## 🚀 Pipeline CI/CD (GitHub Actions)
+
+Le workflow `.github/workflows/ci-cd.yml` s'exécute automatiquement à chaque `push` ou `pull request` sur la branche `main` :
+1. **Backend CI** :
+   - Setup Python 3.11 avec cache `pip`
+   - Vérification syntaxique & linting `flake8`
+   - Exécution de la suite de tests unitaires `pytest backend/tests/test_api.py`
+2. **Frontend CI** :
+   - Setup Node.js 20 avec cache `npm`
+   - Installation des dépendances et exécution des tests
+   - Compilation du bundle de production optimisé (`npm run build`)
+3. **CD Render** :
+   - Déclenchement automatique du déploiement via Render GitHub Integration et Webhooks.
 
 ## Structure du projet
 

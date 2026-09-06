@@ -16,6 +16,7 @@ services:
         value: file_attente
       - key: PYTHON_VERSION
         value: "3.11.4"
+    healthCheckPath: /api/health
     plan: free
 
   # ── Frontend React (Static Site) ──────────────────────────────────────────

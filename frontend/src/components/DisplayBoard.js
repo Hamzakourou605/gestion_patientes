@@ -10,8 +10,9 @@ export default function DisplayBoard() {
   const [data, setData] = useState({
     en_cours: [],
     attente: [],
-    par_statut: { master: [], bachelier: [] },
-    total_attente: 0
+    par_pole: {},
+    total_attente: 0,
+    total_en_cours: 0,
   });
 
   // Last called ticket
@@ -53,7 +54,7 @@ export default function DisplayBoard() {
       osc.start();
       osc.stop(audioCtx.currentTime + 0.4);
     } catch (e) {
-      // Ignore audio errors if blocked by browser policy
+      // Ignore audio errors
     }
   };
 
@@ -84,429 +85,296 @@ export default function DisplayBoard() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Prepare map of 7 guichets
-  const guichetsMap = {};
-  for (let i = 1; i <= 7; i++) {
-    guichetsMap[i] = {
-      numero: i,
-      nom: `Guichet ${i}`,
-      ticket: null,
-      attenteCount: 0
-    };
-  }
+  // Build departments from data
+  const poles = [
+    {
+      id: "inscription",
+      titre: "Accueil & Inscriptions",
+      badge: "4 Guichets",
+      icon: "school",
+      color: "border-blue-500 bg-blue-50/40 text-blue-900",
+      guichets: [1, 2, 3, 4].map((num) => {
+        const t = data.en_cours?.find((item) => item.guichet === num);
+        return { num, nom: `Guichet ${num}`, ticket: t };
+      }),
+    },
+    {
+      id: "concours",
+      titre: "Service Concours",
+      badge: "2 Postes",
+      icon: "military_tech",
+      color: "border-purple-500 bg-purple-50/40 text-purple-900",
+      guichets: [5, 6].map((num) => {
+        const t = data.en_cours?.find((item) => item.guichet === num);
+        return { num, nom: `Concours ${num - 4}`, ticket: t };
+      }),
+    },
+    {
+      id: "paiement",
+      titre: "Caisses de Paiement",
+      badge: "8 Caisses",
+      icon: "payments",
+      color: "border-emerald-500 bg-emerald-50/40 text-emerald-900",
+      guichets: [7, 8, 9, 10, 11, 12, 13, 14].map((num) => {
+        const t = data.en_cours?.find((item) => item.guichet === num);
+        return { num, nom: `Caisse ${num - 6}`, ticket: t };
+      }),
+    },
+    {
+      id: "numerique",
+      titre: "Service Numérique (Dernière étape)",
+      badge: "2 Postes",
+      icon: "devices",
+      color: "border-indigo-500 bg-indigo-50/40 text-indigo-900",
+      guichets: [15, 16].map((num) => {
+        const t = data.en_cours?.find((item) => item.guichet === num);
+        return { num, nom: `Numérique ${num - 14}`, ticket: t };
+      }),
+    },
+  ];
 
-  // Populate with active tickets
-  if (data?.en_cours) {
-    data.en_cours.forEach((t) => {
-      if (t.guichet && guichetsMap[t.guichet]) {
-        guichetsMap[t.guichet].ticket = t;
-      }
-    });
-  }
-
-  // Count waiting per guichet
-  if (data?.attente) {
-    data.attente.forEach((t) => {
-      if (t.guichet && guichetsMap[t.guichet]) {
-        guichetsMap[t.guichet].attenteCount += 1;
-      }
-    });
-  }
-
-  // Waiting queues
-  const masterQueue = data?.par_statut?.master || [];
-  const bachelierQueue = data?.par_statut?.bachelier || [];
+  const waitingList = data.attente || [];
 
   return (
-    <main className="w-full pt-20 bg-background max-w-[1440px] mx-auto px-margin-page-mobile lg:px-margin-page-desktop pb-space-2xl">
-      <div className="flex flex-col w-full gap-space-lg">
-        
-        {/* ZONE D'APPEL MAJEURE & HORLOGE DIGITALE */}
-        <section className="grid grid-cols-1 xl:grid-cols-12 gap-space-md items-stretch">
-          
-          {/* Horloge & Identifiant de salle */}
-          <div className="xl:col-span-4 bg-primary text-on-primary rounded-xl p-space-md md:p-space-lg shadow-md flex flex-col justify-between relative overflow-hidden">
-            <div className="absolute -right-10 -bottom-10 w-44 h-44 rounded-full bg-secondary/15 pointer-events-none blur-xl"></div>
-            
-            <div className="flex items-center justify-between gap-space-sm z-10">
-              <div className="flex items-center gap-space-sm">
-                <div className="w-10 h-10 rounded-lg bg-surface-container-lowest text-primary flex items-center justify-center p-1 shadow-sm font-bold">
-                  <span className="material-symbols-outlined text-[24px]">school</span>
-                </div>
-                <div className="flex flex-col text-left">
-                  <span className="font-headline-sm text-headline-sm font-bold text-on-primary tracking-tight">
-                    Hall Scolarité
-                  </span>
-                  <span className="font-label-caption text-label-caption text-secondary-fixed-dim">
-                    Bâtiment Central — Rez-de-Chaussée
-                  </span>
-                </div>
-              </div>
+    <div className="w-full h-screen max-h-screen bg-[#f1f5f9] text-slate-800 flex flex-col overflow-hidden select-none">
+      
+      {/* ── HEADER BANNER (Fixed, compact) ────────────────────────── */}
+      <header className="h-16 bg-[#00204d] text-white px-5 flex items-center justify-between shadow-md shrink-0">
+        <div className="flex items-center gap-3">
+          <img
+            src="/uir_logo.jpg"
+            alt="UIR Logo"
+            className="w-10 h-10 rounded-lg bg-white object-contain p-0.5 shadow-sm"
+          />
+          <div className="text-left">
+            <h1 className="font-extrabold text-sm md:text-base leading-tight tracking-tight">
+              UNIVERSITÉ INTERNATIONALE DE RABAT
+            </h1>
+            <p className="text-[11px] text-[#93c5fd] font-medium">
+              Service Scolarité · Grand Écran des Appels &amp; Rang de la File
+            </p>
+          </div>
+        </div>
 
-              <span className="px-space-xs py-1 rounded-full bg-secondary-container text-on-secondary-container font-label-caption text-label-caption font-semibold flex items-center gap-1">
-                <span className="material-symbols-outlined text-[14px]">schedule</span>
-                Affichage Public
-              </span>
-            </div>
-
-            <div className="mt-space-md mb-space-xs z-10 text-left">
-              <p className="font-headline-sm text-headline-sm text-surface-container-high font-medium capitalize">
-                {currentDate || "Chargement date..."}
-              </p>
-              <div className="font-display-ticket-mobile md:font-display-ticket-wall text-display-ticket-mobile md:text-display-ticket-wall text-surface-container-lowest tracking-tight font-black leading-none mt-1 select-none">
-                {currentTime || "00:00:00"}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-on-primary-container z-10 pt-space-xs">
-              <span className="font-label-caption text-label-caption flex items-center gap-1">
-                <span className="material-symbols-outlined text-[16px] text-secondary-fixed">wifi</span>
-                Synchronisé avec le serveur central
-              </span>
-              <span className="font-label-caption text-label-caption text-surface-container-highest">
-                Moniteur 01-HALL
-              </span>
-            </div>
+        {/* Live clock and counters */}
+        <div className="flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-2 bg-[#0a2d6b] px-3 py-1 rounded-lg text-xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span className="text-slate-200">En cours : <strong>{data.total_en_cours || 0}</strong></span>
+            <span className="text-slate-400">|</span>
+            <span className="text-slate-200">En attente : <strong>{data.total_attente || 0}</strong></span>
           </div>
 
-          {/* Bannière Dernier Appel (Flash Grand Format) */}
-          <div className="xl:col-span-8 bg-surface-container-lowest rounded-xl p-space-md md:p-space-lg shadow-md flex flex-col md:flex-row items-center justify-between gap-space-md relative overflow-hidden">
-            {/* Indicateur d'appel sonore */}
-            <div className="flex items-center gap-space-md w-full md:w-auto text-left">
-              <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl bg-secondary-container text-on-secondary-container flex items-center justify-center shrink-0 shadow-sm animate-pulse">
-                <span className="material-symbols-outlined text-[36px] md:text-[44px]">notifications_active</span>
+          <div className="text-right">
+            <div className="text-xs text-[#93c5fd] font-semibold capitalize leading-none">
+              {currentDate}
+            </div>
+            <div className="text-xl md:text-2xl font-black tracking-tight leading-none text-white mt-0.5 font-mono">
+              {currentTime}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ── MAIN CONTENT AREA (Takes remaining height, NO SCROLL) ───── */}
+      <main className="flex-1 p-3.5 grid grid-cols-12 gap-3.5 min-h-0 overflow-hidden">
+        
+        {/* LEFT COLUMN: DERNIER APPEL + TOUS LES PÔLES (7 Cols) */}
+        <div className="col-span-12 lg:col-span-7 flex flex-col gap-3 min-h-0 overflow-hidden">
+          
+          {/* BANNIÈRE DERNIER APPEL */}
+          <div className="bg-gradient-to-r from-[#00204d] to-[#0a3875] rounded-2xl p-4 text-white shadow-lg flex items-center justify-between shrink-0 border border-blue-900/40">
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-xl bg-amber-400 text-[#00204d] flex items-center justify-center font-black animate-pulse shadow-md">
+                <span className="material-symbols-outlined text-[34px]">notifications_active</span>
               </div>
-              <div className="flex flex-col">
-                <div className="flex items-center gap-space-xs">
-                  <span className="font-label-counter-badge text-label-counter-badge uppercase tracking-wider text-secondary font-bold">
-                    Dernier Appel en cours
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-surface-container font-label-caption text-label-caption text-on-surface-variant font-semibold">
-                    En direct
-                  </span>
-                </div>
-                <p className="font-headline-md text-headline-md text-on-surface font-extrabold mt-0.5">
-                  L'étudiant portant le ticket suivant est prié de se présenter :
+              <div className="text-left">
+                <span className="inline-block text-[11px] font-extrabold uppercase tracking-wider bg-amber-400/20 text-amber-300 px-2.5 py-0.5 rounded-full mb-0.5">
+                  Dernier Numéro Appelé
+                </span>
+                <p className="text-xs text-blue-100 font-medium">
+                  L'étudiant portant ce numéro est invité au guichet :
                 </p>
               </div>
             </div>
 
-            {/* Ticket & Cible Guichet */}
-            <div className="flex items-center gap-space-md bg-surface-container-low px-space-lg py-space-sm rounded-xl w-full md:w-auto justify-center shadow-inner">
-              <div className="flex flex-col text-center">
-                <span className="font-label-caption text-label-caption text-on-surface-variant uppercase font-semibold tracking-wide">
-                  Numéro Ticket
-                </span>
-                <span className="font-display-ticket-mobile text-display-ticket-mobile font-black text-secondary tracking-tight">
+            <div className="flex items-center gap-3 bg-black/25 px-5 py-2 rounded-xl border border-white/10">
+              <div className="text-center">
+                <span className="text-[10px] text-amber-300 font-bold uppercase tracking-wider block">Numéro</span>
+                <span className="text-3xl md:text-4xl font-black text-white font-mono tracking-tight">
                   {lastCalled ? lastCalled.numero : "—"}
                 </span>
               </div>
-
-              <div className="flex items-center justify-center text-outline-variant px-space-xs">
-                <span className="material-symbols-outlined text-[32px] text-secondary">arrow_forward</span>
-              </div>
-
-              <div className="flex flex-col text-center">
-                <span className="font-label-caption text-label-caption text-on-surface-variant uppercase font-semibold tracking-wide">
-                  Destination
+              <span className="material-symbols-outlined text-amber-300 text-[26px]">arrow_forward</span>
+              <div className="text-center">
+                <span className="text-[10px] text-amber-300 font-bold uppercase tracking-wider block">Orientation</span>
+                <span className="text-xl md:text-2xl font-black text-amber-300">
+                  {lastCalled ? (lastCalled.guichet_nom || `GUICHET ${lastCalled.guichet}`) : "EN ATTENTE"}
                 </span>
-                <div className="px-space-md py-1 bg-primary text-on-primary rounded-lg font-headline-md text-headline-md font-extrabold tracking-tight">
-                  {lastCalled ? `GUICHET ${lastCalled.guichet}` : "EN ATTENTE"}
-                </div>
               </div>
             </div>
           </div>
 
-        </section>
-
-        {/* GRILLE PRINCIPALE : LES 7 GUICHETS D'ACCUEIL */}
-        <section className="flex flex-col gap-space-sm">
-          <div className="flex items-center justify-between px-space-xs">
-            <div className="flex items-center gap-space-xs">
-              <span className="material-symbols-outlined text-secondary text-[24px]">view_quilt</span>
-              <h2 className="font-headline-md text-headline-md text-on-surface font-bold tracking-tight">
-                Statut des 7 Guichets de Scolarité
-              </h2>
-            </div>
-            <div className="flex items-center gap-space-md text-body-sm font-body-sm">
-              <span className="flex items-center gap-space-2xs text-on-surface-variant">
-                <span className="w-3 h-3 rounded-full bg-on-tertiary-container inline-block"></span>
-                7/7 Guichets Opérationnels
-              </span>
-              <span className="hidden sm:inline text-outline-variant">|</span>
-              <span className="hidden sm:inline text-on-surface-variant font-label-caption text-label-caption">
-                Actualisation toutes les 3s
-              </span>
-            </div>
-          </div>
-
-          {/* Grille : 7 Cartes Guichet + 1 Carte Statistique */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-space-md">
-            {Object.values(guichetsMap).map((g) => {
-              const hasTicket = Boolean(g.ticket);
-              const isMaster = g.ticket?.type === "master";
-              const isLast = lastCalled && lastCalled.guichet === g.numero;
-
-              return (
-                <article
-                  key={g.numero}
-                  className={`rounded-xl p-space-md flex flex-col justify-between transition-all relative overflow-hidden ${
-                    isLast
-                      ? "bg-gradient-to-br from-surface-container-lowest to-surface-container-low shadow-lg ring-2 ring-secondary"
-                      : "bg-surface-container-lowest shadow-sm hover:shadow-md"
-                  }`}
-                >
-                  {isLast && <div className="absolute top-0 left-0 right-0 h-1.5 bg-secondary animate-pulse"></div>}
-
-                  {/* Card Header */}
-                  <div className="w-full flex items-center justify-between pb-space-xs">
-                    <div className="flex items-center gap-space-xs">
-                      <span
-                        className={`px-space-xs py-1 rounded font-label-ticket-mono text-label-ticket-mono font-black ${
-                          isLast ? "bg-secondary text-on-secondary" : "bg-surface-container text-on-surface"
-                        }`}
-                      >
-                        G-0{g.numero}
-                      </span>
-                      <span className="font-headline-sm text-headline-sm text-on-surface font-bold">
-                        GUICHET {g.numero}
-                      </span>
-                    </div>
-
-                    <span
-                      className={`px-space-xs py-1 rounded-full font-label-caption text-label-caption font-bold flex items-center gap-1 ${
-                        isLast
-                          ? "bg-secondary-container text-on-secondary-container animate-pulse"
-                          : hasTicket
-                          ? "bg-surface-container-high text-on-tertiary-container"
-                          : "bg-surface-container text-on-surface-variant"
-                      }`}
-                    >
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          hasTicket ? "bg-on-tertiary-container" : "bg-outline"
-                        }`}
-                      ></span>
-                      {isLast ? "APPEL ACTIF" : hasTicket ? "EN SERVICE" : "DISPONIBLE"}
+          {/* GRILLE DES PÔLES ET GUICHETS (S'adapte sans dépasser) */}
+          <div className="flex-1 grid grid-cols-2 gap-2.5 min-h-0 overflow-hidden">
+            {poles.map((pole) => (
+              <div
+                key={pole.id}
+                className="bg-white rounded-xl p-2.5 shadow-sm border border-slate-200 flex flex-col min-h-0 overflow-hidden"
+              >
+                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-100 shrink-0">
+                  <div className="flex items-center gap-1.5 text-left">
+                    <span className="material-symbols-outlined text-blue-700 text-[18px]">{pole.icon}</span>
+                    <span className="font-extrabold text-xs text-slate-800 tracking-tight truncate">
+                      {pole.titre}
                     </span>
                   </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full shrink-0">
+                    {pole.badge}
+                  </span>
+                </div>
 
-                  {/* Middle Ticket Box */}
+                {/* Sub-grid of desks */}
+                <div className="flex-1 grid grid-cols-2 gap-1.5 min-h-0 overflow-y-auto pr-0.5">
+                  {pole.guichets.map((g) => (
+                    <div
+                      key={g.num}
+                      className={`p-1.5 rounded-lg border text-left transition-all ${
+                        g.ticket
+                          ? "bg-blue-50/80 border-blue-300 shadow-xs"
+                          : "bg-slate-50 border-slate-200 opacity-75"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-500 truncate">{g.nom}</span>
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            g.ticket ? "bg-emerald-500 animate-pulse" : "bg-slate-300"
+                          }`}
+                        />
+                      </div>
+                      <div className="mt-0.5">
+                        {g.ticket ? (
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-sm font-black text-blue-900 font-mono tracking-tight">
+                              {g.ticket.numero}
+                            </span>
+                            <span className="text-[9px] font-semibold text-blue-700 truncate max-w-[65px]">
+                              {g.ticket.type_label}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">Disponible</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+        </div>
+
+        {/* RIGHT COLUMN: RANG DANS LA FILE D'ATTENTE (5 Cols - NO SCROLL / FITS SCREEN) */}
+        <div className="col-span-12 lg:col-span-5 bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200 flex flex-col min-h-0 overflow-hidden text-left">
+          
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center">
+                <span className="material-symbols-outlined text-[18px]">format_list_numbered</span>
+              </div>
+              <div>
+                <h2 className="font-extrabold text-sm text-slate-900">
+                  File d'Attente &amp; Tour du Candidat
+                </h2>
+                <p className="text-[10px] text-slate-500">
+                  Votre tour dans le rang est mis à jour en temps réel.
+                </p>
+              </div>
+            </div>
+
+            <span className="px-2.5 py-1 bg-amber-100 text-amber-900 font-black text-xs rounded-full">
+              {waitingList.length} en attente
+            </span>
+          </div>
+
+          {/* Table Header */}
+          <div className="grid grid-cols-12 gap-1 px-2 py-1 bg-slate-100 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-wider shrink-0 mb-1.5">
+            <div className="col-span-3 text-center">Rang</div>
+            <div className="col-span-3 text-center">Ticket</div>
+            <div className="col-span-3">Filière / Type</div>
+            <div className="col-span-3 text-right">Affectation</div>
+          </div>
+
+          {/* Waiting Tickets List */}
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1">
+            {waitingList.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs py-8">
+                <span className="material-symbols-outlined text-4xl mb-1 text-slate-300">check_circle</span>
+                <p className="font-semibold">Aucun ticket en attente</p>
+                <p className="text-[10px]">Tous les étudiants ont été pris en charge.</p>
+              </div>
+            ) : (
+              waitingList.slice(0, 16).map((t, idx) => {
+                const isNext = idx === 0;
+                return (
                   <div
-                    className={`my-space-sm py-space-sm px-space-md rounded-xl flex flex-col items-center justify-center text-center ${
-                      hasTicket
-                        ? isMaster
-                          ? "bg-primary-container text-on-primary shadow-sm"
-                          : "bg-secondary-fixed/40 text-on-surface"
-                        : "bg-surface-container text-on-surface-variant"
+                    key={t.id || idx}
+                    className={`grid grid-cols-12 gap-1 items-center px-2 py-1.5 rounded-lg border text-xs transition-all ${
+                      isNext
+                        ? "bg-amber-50/90 border-amber-300 shadow-xs font-bold"
+                        : idx % 2 === 0
+                        ? "bg-slate-50 border-slate-100"
+                        : "bg-white border-slate-100"
                     }`}
                   >
-                    <span
-                      className={`font-label-caption text-label-caption uppercase tracking-wider font-bold ${
-                        hasTicket && isMaster ? "text-secondary-fixed" : "text-secondary"
-                      }`}
-                    >
-                      {hasTicket ? (isMaster ? "Master & Doctorat" : "Bachelier / Licence") : "En attente"}
-                    </span>
-
-                    <span
-                      className={`font-display-ticket-mobile text-display-ticket-mobile font-black tracking-tight ${
-                        hasTicket
-                          ? isMaster
-                            ? "text-surface-bright"
-                            : "text-secondary"
-                          : "text-outline"
-                      }`}
-                    >
-                      {hasTicket ? g.ticket.numero : "Libre"}
-                    </span>
-                  </div>
-
-                  {/* Footer metadata */}
-                  <div className="flex items-center justify-between pt-space-xs text-on-surface-variant">
-                    <div className="flex items-center gap-space-2xs text-left">
-                      <span className="material-symbols-outlined text-[18px] text-secondary">
-                        {isMaster ? "school" : "credit_card"}
-                      </span>
-                      <span className="font-body-sm text-body-sm font-medium text-on-surface truncate max-w-[130px]">
-                        {hasTicket ? g.ticket.service_label : "Prêt pour appel"}
+                    {/* Rang */}
+                    <div className="col-span-3 text-center">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-black ${
+                          isNext
+                            ? "bg-amber-500 text-white animate-bounce"
+                            : "bg-slate-200 text-slate-700"
+                        }`}
+                      >
+                        #{t.rang || idx + 1}
                       </span>
                     </div>
 
-                    <span className="font-label-caption text-label-caption font-semibold text-secondary">
-                      {g.attenteCount} en file
-                    </span>
+                    {/* Numéro */}
+                    <div className="col-span-3 text-center">
+                      <span className="font-black text-sm text-[#00204d] font-mono">
+                        {t.numero}
+                      </span>
+                    </div>
+
+                    {/* Service / Type */}
+                    <div className="col-span-3 truncate text-[11px] text-slate-600 font-medium">
+                      {t.service_label || t.type_label}
+                    </div>
+
+                    {/* Guichet */}
+                    <div className="col-span-3 text-right truncate">
+                      <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-900">
+                        {t.guichet_nom || `G${t.guichet}`}
+                      </span>
+                    </div>
                   </div>
-                </article>
-              );
-            })}
-
-            {/* 8th Card: Supervision Directe */}
-            <aside className="bg-primary text-on-primary rounded-xl p-space-md flex flex-col justify-between shadow-sm relative overflow-hidden text-left">
-              <div className="flex items-center justify-between">
-                <span className="font-label-counter-badge text-label-counter-badge uppercase tracking-wider text-secondary-fixed font-bold">
-                  Flux Global Hall
-                </span>
-                <span className="material-symbols-outlined text-secondary-fixed text-[20px]">speed</span>
-              </div>
-
-              <div className="flex flex-col my-space-xs">
-                <span className="font-display-ticket-mobile text-display-ticket-mobile font-black text-surface-container-lowest leading-none">
-                  {data.total_attente}
-                </span>
-                <span className="font-body-sm text-body-sm text-surface-container-high mt-1">
-                  Étudiants actuellement en file d'attente
-                </span>
-              </div>
-
-              <div className="bg-surface-container-highest/15 rounded-lg p-space-xs flex items-center justify-between text-on-primary">
-                <span className="font-label-caption text-label-caption">Délai moyen d'attente</span>
-                <span className="font-label-ticket-mono text-label-ticket-mono text-secondary-fixed-dim">
-                  ~ 4 min
-                </span>
-              </div>
-            </aside>
-          </div>
-        </section>
-
-        {/* SECTION INFÉRIEURE : RÉCAPITULATIF DES FILES D'ATTENTE PAR FILIÈRE */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-space-md">
-          
-          {/* COLONNE MASTER & DOCTORAT */}
-          <div className="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between text-left">
-            <div>
-              <div className="flex items-center justify-between pb-space-sm border-b border-surface-container-high/60">
-                <div className="flex items-center gap-space-sm">
-                  <div className="w-10 h-10 rounded-lg bg-primary-container text-surface-bright flex items-center justify-center font-bold">
-                    <span className="material-symbols-outlined text-[24px]">school</span>
-                  </div>
-                  <div>
-                    <h3 className="font-headline-sm text-headline-sm text-on-surface font-bold">
-                      File Master &amp; Doctorat
-                    </h3>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant">
-                      Orientation automatique vers le guichet le moins chargé
-                    </p>
-                  </div>
-                </div>
-
-                <span className="px-space-sm py-1 rounded-full bg-surface-container text-primary font-label-counter-badge text-label-counter-badge font-bold">
-                  {masterQueue.length} personnes
-                </span>
-              </div>
-
-              <div className="mt-space-md">
-                <span className="font-label-caption text-label-caption text-on-surface-variant uppercase font-bold tracking-wider">
-                  Prochains tickets appelés
-                </span>
-
-                <div className="grid grid-cols-3 gap-space-sm mt-space-xs">
-                  {[0, 1, 2].map((idx) => {
-                    const ticket = masterQueue[idx];
-                    return (
-                      <div key={idx} className="bg-surface-container-low p-space-sm rounded-lg text-center">
-                        <span className="font-label-caption text-label-caption text-on-surface-variant block font-medium">
-                          Rang +{idx + 1}
-                        </span>
-                        <span className="font-headline-md text-headline-md font-black text-primary">
-                          {ticket ? ticket.numero : "—"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-center gap-space-sm pt-space-md mt-space-md bg-surface-container-low/50 rounded-lg p-space-sm">
-              <span className="material-symbols-outlined text-secondary text-[24px]">hourglass_top</span>
-              <div className="flex items-center gap-space-xs">
-                <span className="font-label-caption text-label-caption text-on-surface-variant font-medium">
-                  Attente moyenne estimée :
-                </span>
-                <span className="font-headline-sm text-headline-sm font-bold text-secondary">
-                  {masterQueue.length > 0 ? `${masterQueue.length * 3} min` : "Immédiate"}
-                </span>
-              </div>
-            </div>
+                );
+              })
+            )}
           </div>
 
-          {/* COLONNE BACHELIER & LICENCE */}
-          <div className="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between text-left">
-            <div>
-              <div className="flex items-center justify-between pb-space-sm border-b border-surface-container-high/60">
-                <div className="flex items-center gap-space-sm">
-                  <div className="w-10 h-10 rounded-lg bg-secondary-fixed text-on-secondary-fixed flex items-center justify-center font-bold">
-                    <span className="material-symbols-outlined text-[24px]">local_library</span>
-                  </div>
-                  <div>
-                    <h3 className="font-headline-sm text-headline-sm text-on-surface font-bold">
-                      File Bachelier &amp; Licence
-                    </h3>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant">
-                      Orientation automatique vers le guichet le moins chargé
-                    </p>
-                  </div>
-                </div>
-
-                <span className="px-space-sm py-1 rounded-full bg-secondary-fixed/40 text-secondary font-label-counter-badge text-label-counter-badge font-bold">
-                  {bachelierQueue.length} personnes
-                </span>
-              </div>
-
-              <div className="mt-space-md">
-                <span className="font-label-caption text-label-caption text-on-surface-variant uppercase font-bold tracking-wider">
-                  Prochains tickets appelés
-                </span>
-
-                <div className="grid grid-cols-3 gap-space-sm mt-space-xs">
-                  {[0, 1, 2].map((idx) => {
-                    const ticket = bachelierQueue[idx];
-                    return (
-                      <div key={idx} className="bg-secondary-fixed/20 p-space-sm rounded-lg text-center">
-                        <span className="font-label-caption text-label-caption text-secondary block font-medium">
-                          Rang +{idx + 1}
-                        </span>
-                        <span className="font-headline-md text-headline-md font-black text-secondary">
-                          {ticket ? ticket.numero : "—"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-center gap-space-sm pt-space-md mt-space-md bg-surface-container-low/50 rounded-lg p-space-sm">
-              <span className="material-symbols-outlined text-secondary text-[24px]">timer</span>
-              <div className="flex items-center gap-space-xs">
-                <span className="font-label-caption text-label-caption text-on-surface-variant font-medium">
-                  Attente moyenne estimée :
-                </span>
-                <span className="font-headline-sm text-headline-sm font-bold text-secondary">
-                  {bachelierQueue.length > 0 ? `${bachelierQueue.length * 2.5} min` : "Immédiate"}
-                </span>
-              </div>
-            </div>
+          {/* Footer note */}
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 shrink-0">
+            <span>📢 Préparez vos pièces justificatives</span>
+            <span>Le même numéro vous suit jusqu'au bout</span>
           </div>
 
-        </section>
+        </div>
 
-        {/* BANDEAU DÉFILANT D'INFORMATION EN BAS (TICKER PUBLIC) */}
-        <section className="w-full bg-primary text-on-primary rounded-xl py-space-sm px-space-md shadow-sm overflow-hidden flex items-center gap-space-md">
-          <div className="flex items-center gap-space-xs shrink-0 bg-secondary px-space-sm py-1 rounded font-label-caption text-label-caption font-bold text-on-secondary uppercase tracking-wider">
-            <span className="material-symbols-outlined text-[16px]">info</span>
-            <span>Information</span>
-          </div>
-
-          <div className="relative w-full overflow-hidden whitespace-nowrap">
-            <div className="inline-block animate-marquee font-body-md text-body-md font-medium text-surface-container-high tracking-wide">
-              Veuillez préparer votre pièce d'identité originale et votre attestation d'inscription provisoire. • Les étudiants munis de tickets prioritaires sont invités à se signaler directement au guichet d'accueil numéro 1. • Borne libre-service disponible près de l'entrée pour les retraits d'attestation de scolarité immédiate. • Un QR code dynamique est à votre disposition à la borne d'entrée pour recevoir votre ticket directement sur votre smartphone.
-            </div>
-          </div>
-        </section>
-
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import QRCode from "qrcode";
-import { getAffichage, getConfig } from "../api";
+import { getAffichage, getConfig, setConfigTunnel } from "../api";
 
 const MAX_TIME = 30;
 const CIRCUMFERENCE = 263.89;
@@ -24,8 +24,14 @@ export default function Kiosk() {
   const [tokenCode, setTokenCode] = useState(generateToken);
   const [scanCount, setScanCount] = useState(0);
 
-  // Mobile URL — fetched from backend (tunnel URL prioritized)
-  const [mobileUrl, setMobileUrl] = useState(fallbackMobileUrl());
+  // Public URL configuration for 3G / 5G / All networks
+  const [showUrlModal, setShowUrlModal] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState("");
+
+  // Mobile URL — fetched from backend (tunnel URL prioritized) or localStorage
+  const [mobileUrl, setMobileUrl] = useState(() => {
+    return localStorage.getItem("custom_mobile_url") || fallbackMobileUrl();
+  });
 
   // Live stats from backend
   const [stats, setStats] = useState({
@@ -38,15 +44,17 @@ export default function Kiosk() {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
+        const savedCustom = localStorage.getItem("custom_mobile_url");
+        if (savedCustom) {
+          setMobileUrl(savedCustom);
+          return;
+        }
         const cfg = await getConfig();
-        // Prefer tunnel URL (works on any network: 3G, 5G, external WiFi)
-        // Fall back to LAN URL (same WiFi only)
         const url = cfg.mobile_tunnel || cfg.mobile_lan || fallbackMobileUrl();
         setMobileUrl(url);
-      } catch (_) {}
+      } catch (_) { }
     };
     fetchConfig();
-    // Re-check every 15 seconds in case tunnel is started/stopped
     const iv = setInterval(fetchConfig, 15000);
     return () => clearInterval(iv);
   }, []);
@@ -100,7 +108,7 @@ export default function Kiosk() {
         prochainMaster: mq[0]?.numero ?? "—",
         prochainBachelier: bq[0]?.numero ?? "—",
       });
-    } catch (_) {}
+    } catch (_) { }
   }, []);
 
   useEffect(() => {
@@ -141,12 +149,33 @@ export default function Kiosk() {
               Pointez l'appareil photo de votre smartphone vers le QR code.
               Le code se régénère toutes les 30 secondes pour sécuriser chaque ticket.
             </p>
-            <p className="font-label-sm text-label-sm text-secondary uppercase tracking-wider font-bold mt-1">
-              URL de scan :{" "}
-              <code className="lowercase tracking-normal bg-surface-container px-1 rounded font-mono text-on-surface">
+            <div className="flex items-center gap-2 flex-wrap mt-1">
+              <span className="font-label-sm text-label-sm text-secondary uppercase tracking-wider font-bold">
+                URL de scan :
+              </span>
+              <code className="lowercase tracking-normal bg-surface-container px-2 py-0.5 rounded font-mono text-xs text-on-surface">
                 {mobileUrl}
               </code>
-            </p>
+              <button
+                onClick={() => {
+                  setCustomUrlInput(mobileUrl);
+                  setShowUrlModal(true);
+                }}
+                className="text-xs font-bold text-primary hover:underline flex items-center gap-1 bg-primary-fixed px-2 py-0.5 rounded-full"
+              >
+                <span className="material-symbols-outlined text-[14px]">public</span>
+                Changer URL (3G/5G/Render)
+              </button>
+              <a
+                href="#/mobile"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-semibold text-secondary hover:underline flex items-center gap-0.5"
+              >
+                <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                Tester sur ce PC
+              </a>
+            </div>
           </div>
 
           {/* Metric counters */}
@@ -159,14 +188,101 @@ export default function Kiosk() {
               </span>
             </div>
             <div className="px-space-md py-space-xs bg-surface-container-lowest rounded-lg shadow-sm text-left">
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase block font-semibold">Guichets ouverts</span>
+              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase block font-semibold">Postes Déployés</span>
               <span className="font-headline-sm text-headline-sm text-tertiary-container flex items-center gap-1 font-bold">
                 <span className="material-symbols-outlined text-[20px]">desk</span>
-                7 / 7
+                16 Postes (4 Pôles)
               </span>
             </div>
           </div>
         </div>
+
+        {/* Modal Configuration URL Publique */}
+        {showUrlModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl text-left">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-lg text-[#00204d] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-blue-600">settings_ethernet</span>
+                  Configurer l'URL de Scan
+                </h3>
+                <button
+                  onClick={() => setShowUrlModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 mb-3 leading-relaxed">
+                Pour que les étudiants puissent scanner depuis <strong>n'importe quel réseau (3G, 4G, 5G ou Wi-Fi externe)</strong>, entrez votre URL publique (ex: l'URL Render ou votre tunnel).
+              </p>
+
+              <div className="space-y-3 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    URL Publique (ex: https://gestion-patientes.onrender.com)
+                  </label>
+                  <input
+                    type="url"
+                    value={customUrlInput}
+                    onChange={(e) => setCustomUrlInput(e.target.value)}
+                    placeholder="https://votre-app.onrender.com"
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-sm font-mono"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const url = fallbackMobileUrl();
+                      setCustomUrlInput(url);
+                    }}
+                    className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg font-semibold"
+                  >
+                    Réseau Local (Wi-Fi)
+                  </button>
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem("custom_mobile_url");
+                      window.location.reload();
+                    }}
+                    className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg font-semibold"
+                  >
+                    Auto-détection
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowUrlModal(false)}
+                  className="px-4 py-2 rounded-lg text-slate-600 font-semibold text-sm hover:bg-slate-100"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={async () => {
+                    let finalUrl = customUrlInput.trim();
+                    if (finalUrl && !finalUrl.includes("/#/mobile")) {
+                      finalUrl = `${finalUrl.replace(/\/$/, "")}/#/mobile`;
+                    }
+                    localStorage.setItem("custom_mobile_url", finalUrl);
+                    setMobileUrl(finalUrl);
+                    drawQR(finalUrl);
+                    try {
+                      await setConfigTunnel(finalUrl.replace("/#/mobile", ""));
+                    } catch (_) {}
+                    setShowUrlModal(false);
+                  }}
+                  className="px-5 py-2 bg-[#00204d] text-white rounded-lg font-bold text-sm shadow hover:bg-blue-900"
+                >
+                  Enregistrer &amp; Actualiser QR
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Main showcase ─────────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-space-xl items-stretch">
@@ -217,7 +333,7 @@ export default function Kiosk() {
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="w-14 h-14 bg-white rounded-xl shadow-lg border border-surface-container-high/40 flex items-center justify-center overflow-hidden">
                     <img
-                      src="/uir_logo.jpg"
+                      src="/logo.png"
                       alt="UIR Logo"
                       className="w-11 h-11 object-contain"
                     />

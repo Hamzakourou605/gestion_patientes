@@ -1,0 +1,20 @@
+{
+  "name": "gestion-file-attente",
+  "version": "1.0.0",
+  "description": "Application de gestion de file d'attente pour un service de scolarité : un étudiant scanne un code, choisit son statut (Master / Bachelier) puis son service, et reçoit un ticket numéroté automatiquement affecté au guichet le moins chargé parmi 7.",
+  "main": "start-tunnel.js",
+  "scripts": {
+    "tunnel": "npx localtunnel --port 3001"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hamzakourou605/gestion_patientes.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Hamzakourou605/gestion_patientes/issues"
+  },
+  "homepage": "https://github.com/Hamzakourou605/gestion_patientes#readme"
+}
