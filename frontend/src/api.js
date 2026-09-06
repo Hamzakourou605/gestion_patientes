@@ -37,4 +37,22 @@ export const getConfig = () => api.get("/config").then((r) => r.data);
 export const setConfigTunnel = (tunnelUrl) =>
   api.post("/config", { tunnel_url: tunnelUrl }).then((r) => r.data);
 
+export const getTicketStatus = (numero) =>
+  api.get(`/tickets/${encodeURIComponent(numero)}`).then((r) => r.data);
+
+export const pauseGuichet = (numero) =>
+  api.post(`/guichets/${numero}/pause`).then((r) => r.data);
+
+export const resumeGuichet = (numero) =>
+  api.post(`/guichets/${numero}/resume`).then((r) => r.data);
+
+export const setGuichetAbsent = (numero) =>
+  api.post(`/guichets/${numero}/absent`).then((r) => r.data);
+
+export const activateGuichet = (numero) =>
+  api.post(`/guichets/${numero}/activate`).then((r) => r.data);
+
+export const completeTicket = (ticketId) =>
+  api.post(`/tickets/${encodeURIComponent(ticketId)}/complete`).then((r) => r.data);
+
 export default api;

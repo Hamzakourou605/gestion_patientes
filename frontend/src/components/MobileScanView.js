@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { creerTicket } from "../api";
+import React, { useState, useEffect, useRef } from "react";
+import { creerTicket, getTicketStatus } from "../api";
 
 // ─── Service definitions including Service Concours ─────────────────────────
 const SERVICES = [
@@ -50,7 +50,7 @@ const SERVICES = [
   {
     code: "autres",
     label: "Autres Demandes",
-    desc: "Attestations, relevés de notes, duplicatas de carte, ou toute autre démarche.",
+    desc: "Attestations, relevés de notes, duplicatas de carte, ou autre démarche.",
     icon: "folder_open",
     color: "bg-[#374151] hover:bg-[#1f2937]",
     textColor: "text-white",
@@ -71,6 +71,10 @@ function printTicket(ticket, serviceMeta) {
     day: "numeric",
   });
   const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const deskText = ticket.guichet
+    ? (ticket.guichet_nom ? ticket.guichet_nom.toUpperCase() : `GUICHET ${ticket.guichet}`)
+    : "NON ATTRIBUÉ (ANNONCÉ À L'APPEL)";
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
@@ -134,7 +138,7 @@ function printTicket(ticket, serviceMeta) {
       display: inline-block;
       background: #00204d;
       color: white;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
       padding: 6px 18px;
       border-radius: 20px;
@@ -204,15 +208,15 @@ function printTicket(ticket, serviceMeta) {
       <div class="big-number">${ticket.numero}</div>
 
       <div class="rang-badge">
-        🎯 RANG DANS LA FILE : #${ticket.rang || ticket.position || 1}
+        🎯 POSITION DANS LA FILE : #${ticket.position || 1}
       </div>
 
-      <p class="label">Veuillez vous présenter à</p>
-      <div class="desk-badge">${ticket.guichet_nom ? ticket.guichet_nom.toUpperCase() : `GUICHET ${ticket.guichet}`}</div>
+      <p class="label">Guichet assigné</p>
+      <div class="desk-badge">${deskText}</div>
 
       <div class="service-badge">
         <span>&#128196;</span>
-        <p>${serviceMeta.label}</p>
+        <p>${serviceMeta?.label || "Service Scolarité"}</p>
       </div>
 
       <div class="details-grid">
@@ -225,17 +229,17 @@ function printTicket(ticket, serviceMeta) {
           <p class="detail-value">${timeStr}</p>
         </div>
         <div class="detail-item">
-          <p class="detail-label">Statut</p>
-          <p class="detail-value">En attente (Rang #${ticket.rang || 1})</p>
+          <p class="detail-label">Position</p>
+          <p class="detail-value">#${ticket.position || 1} (${ticket.personnes_avant ?? 0} avant vous)</p>
         </div>
         <div class="detail-item">
-          <p class="detail-label">Guichet assigné</p>
-          <p class="detail-value">${ticket.guichet_nom || `Guichet ${ticket.guichet}`}</p>
+          <p class="detail-label">Statut</p>
+          <p class="detail-value">${ticket.statut || "WAITING"}</p>
         </div>
       </div>
 
       <div class="info-box">
-        📢 <strong>Surveillez le grand écran du hall</strong> : votre numéro ${ticket.numero} y sera appelé dès que le guichet sera prêt.
+        📢 <strong>Surveillez le grand écran du hall</strong> : votre numéro ${ticket.numero} y sera appelé avec le guichet exact dès qu'un agent sera disponible.
       </div>
     </div>
 
@@ -266,11 +270,53 @@ export default function MobileScanView() {
   const [selectedService, setSelectedService] = useState(null);
   const [ticket, setTicket] = useState(null);
   const [error, setError] = useState("");
+  const audioNotifiedRef = useRef(false);
+
+  // Polling dynamique de la position du ticket en temps réel
+  useEffect(() => {
+    if (phase !== "done" || !ticket?.numero) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const fresh = await getTicketStatus(ticket.numero);
+        if (fresh) {
+          setTicket((prev) => {
+            if (!prev) return fresh;
+            const isCalledNow =
+              (fresh.statut === "IN_PROGRESS" || fresh.statut === "CALLED" || fresh.guichet) &&
+              (!prev.guichet && prev.statut !== "IN_PROGRESS" && prev.statut !== "CALLED");
+
+            if (isCalledNow && !audioNotifiedRef.current) {
+              audioNotifiedRef.current = true;
+              if (navigator.vibrate) {
+                navigator.vibrate([200, 100, 200, 100, 300]);
+              }
+            }
+
+            return {
+              ...prev,
+              ...fresh,
+              position: fresh.position ?? prev.position,
+              personnes_avant: fresh.personnes_avant ?? prev.personnes_avant,
+              statut: fresh.statut ?? prev.statut,
+              guichet: fresh.guichet ?? prev.guichet,
+              guichet_nom: fresh.guichet_nom ?? prev.guichet_nom,
+            };
+          });
+        }
+      } catch (err) {
+        // En cas d'erreur réseau temporaire, continuer sans crasher
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [phase, ticket?.numero]);
 
   const handleSelectService = async (svc) => {
     setSelectedService(svc);
     setPhase("loading");
     setError("");
+    audioNotifiedRef.current = false;
     try {
       const t = await creerTicket(svc.apiType, svc.apiService);
       setTicket(t);
@@ -290,10 +336,17 @@ export default function MobileScanView() {
     setSelectedService(null);
     setTicket(null);
     setError("");
+    audioNotifiedRef.current = false;
   };
 
+  const isCalled =
+    ticket &&
+    (ticket.statut === "IN_PROGRESS" || ticket.statut === "CALLED" || (ticket.guichet !== null && ticket.guichet !== undefined));
+
+  const isCompleted = ticket && ticket.statut === "COMPLETED";
+
   return (
-    <div className="min-h-screen bg-[#f0f4ff] flex flex-col items-center justify-start pt-4 pb-10 px-4">
+    <div className="min-h-screen bg-[#f0f4ff] flex flex-col items-center justify-start pt-4 pb-12 px-4">
       {/* ── UIR Header ──────────────────────────────────────── */}
       <div className="w-full max-w-[440px] bg-[#00204d] rounded-2xl shadow-lg overflow-hidden mb-5">
         <div className="flex items-center gap-3 px-5 py-4">
@@ -325,7 +378,7 @@ export default function MobileScanView() {
               Quelle est votre démarche ?
             </h2>
             <p className="text-xs text-[#6b7280] mt-1">
-              Sélectionnez votre service pour recevoir votre numéro et votre rang dans la file.
+              Sélectionnez votre service pour entrer dans la file d'attente globale.
             </p>
           </div>
 
@@ -357,7 +410,7 @@ export default function MobileScanView() {
           ))}
 
           <p className="text-center text-[10px] text-[#9ca3af] mt-2">
-            UIR · Scolarité Numérique · Le même numéro vous suit jusqu'au Service Numérique.
+            UIR · File d'attente globale · Votre guichet vous sera indiqué lors de votre appel.
           </p>
         </div>
       )}
@@ -370,7 +423,7 @@ export default function MobileScanView() {
           </div>
           <p className="font-bold text-[#00204d] text-lg">Génération de votre ticket…</p>
           <p className="text-sm text-[#6b7280] text-center">
-            Affectation au guichet disponible et calcul de votre rang.
+            Entrée dans la file d'attente globale et calcul de votre position.
           </p>
           {selectedService && (
             <div className={`${selectedService.color} ${selectedService.textColor} rounded-xl px-4 py-2 text-sm font-semibold`}>
@@ -383,31 +436,109 @@ export default function MobileScanView() {
       {/* ── DONE PHASE ──────────────────────────────────────── */}
       {phase === "done" && ticket && selectedService && (
         <div className="w-full max-w-[440px] flex flex-col gap-4">
-          {/* Ticket card */}
+          
+          {/* SI LE TICKET EST APPELÉ PAR UN AGENT */}
+          {isCalled && !isCompleted && (
+            <div className="bg-gradient-to-br from-emerald-600 to-green-700 text-white rounded-2xl p-6 shadow-2xl text-center animate-bounce border-2 border-green-300">
+              <span className="material-symbols-outlined text-[48px] text-amber-300 block mb-1">
+                campaign
+              </span>
+              <p className="text-xs uppercase font-extrabold tracking-widest text-emerald-100">
+                🎉 C'est Votre Tour !
+              </p>
+              <div className="text-5xl font-black tracking-tight my-2">
+                {ticket.numero}
+              </div>
+              <p className="text-sm font-semibold text-emerald-100 mb-2">
+                Veuillez vous présenter immédiatement au :
+              </p>
+              <div className="inline-block bg-white text-[#00204d] font-black text-2xl px-6 py-2.5 rounded-xl shadow-lg">
+                {ticket.guichet_nom ? ticket.guichet_nom.toUpperCase() : `GUICHET ${ticket.guichet}`}
+              </div>
+            </div>
+          )}
+
+          {/* SI LE TICKET EST CLÔTURÉ */}
+          {isCompleted && (
+            <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-2xl p-5 text-center shadow-md">
+              <span className="material-symbols-outlined text-[36px] text-emerald-600 block mb-1">
+                task_alt
+              </span>
+              <p className="font-extrabold text-lg">Démarche terminée</p>
+              <p className="text-xs text-emerald-700 mt-1">
+                Votre passage pour le ticket <strong>{ticket.numero}</strong> est validé. Merci pour votre visite à l'UIR.
+              </p>
+            </div>
+          )}
+
+          {/* CARTE TICKET PRINCIPALE */}
           <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-[#e0e7ff]">
-            <div className="bg-[#16a34a] flex items-center gap-2.5 px-5 py-3">
-              <span className="material-symbols-outlined text-white text-[22px]">check_circle</span>
-              <p className="text-white font-bold text-sm">Ticket confirmé avec succès !</p>
+            {/* Header bandeau statut */}
+            <div className={`flex items-center justify-between px-5 py-3 ${
+              isCalled ? "bg-emerald-600" : isCompleted ? "bg-gray-700" : "bg-[#0a2d6b]"
+            }`}>
+              <div className="flex items-center gap-2 text-white font-bold text-sm">
+                <span className="material-symbols-outlined text-[20px]">
+                  {isCalled ? "notifications_active" : isCompleted ? "check_circle" : "hourglass_top"}
+                </span>
+                <span>
+                  {isCalled
+                    ? "TICKET APPELÉ AU GUICHET"
+                    : isCompleted
+                    ? "TICKET CLÔTURÉ"
+                    : "EN ATTENTE D'APPEL"}
+                </span>
+              </div>
+              <span className="text-[11px] bg-white/20 text-white font-semibold px-2 py-0.5 rounded-md">
+                Direct
+              </span>
             </div>
 
             <div className="px-6 py-5 text-center">
               <p className="text-xs font-bold uppercase tracking-widest text-[#6b7280] mb-1">
-                Votre numéro d'appel
+                Votre Ticket
               </p>
               <div className="text-6xl font-black text-[#00204d] tracking-tighter leading-none my-2">
                 {ticket.numero}
               </div>
 
-              {/* RANG DANS LA FILE */}
-              <div className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-300 text-amber-900 font-extrabold text-sm px-4 py-1.5 rounded-full mb-3 shadow-xs">
-                <span className="material-symbols-outlined text-[18px] text-amber-600">hourglass_top</span>
-                <span>RANG DANS LA FILE : #{ticket.rang || ticket.position || 1}</span>
+              {/* RANG / POSITION DYNAMIQUE */}
+              {!isCalled && !isCompleted && (
+                <div className="my-4 p-4 bg-amber-50/80 rounded-2xl border border-amber-200 shadow-inner">
+                  <p className="text-xs font-bold uppercase tracking-wider text-amber-800 mb-1">
+                    Position Actuelle
+                  </p>
+                  <div className="text-5xl font-black text-amber-700 tracking-tight">
+                    {ticket.position ?? 1}
+                  </div>
+                  <div className="mt-2 inline-flex items-center gap-1.5 text-xs font-extrabold text-amber-900 bg-amber-200/70 px-3 py-1 rounded-full">
+                    <span className="material-symbols-outlined text-[16px]">groups</span>
+                    <span>
+                      {(ticket.personnes_avant ?? 0) === 0
+                        ? "Vous êtes le prochain candidat !"
+                        : `${ticket.personnes_avant} personne(s) avant vous`}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* GUICHET ATTRIBUTION REALISTE */}
+              <div className="my-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#6b7280] mb-1">
+                  Guichet d'affectation
+                </p>
+                {ticket.guichet ? (
+                  <div className="bg-[#00204d] text-white font-black text-lg px-5 py-2.5 rounded-xl shadow-md">
+                    {ticket.guichet_nom ? ticket.guichet_nom.toUpperCase() : `GUICHET ${ticket.guichet}`}
+                  </div>
+                ) : (
+                  <div className="bg-slate-100 text-slate-700 font-bold text-sm px-4 py-2 rounded-xl border border-dashed border-slate-300">
+                    Non attribué · Vous serez appelé(e) dès qu'un guichet se libère
+                  </div>
+                )}
               </div>
 
-              <div className="block bg-[#00204d] text-white font-bold text-base px-6 py-2 rounded-xl mb-3 shadow-md">
-                {ticket.guichet_nom ? ticket.guichet_nom.toUpperCase() : `GUICHET ${ticket.guichet}`}
-              </div>
-
+              {/* SERVICE */}
               <div className={`${selectedService.color} ${selectedService.textColor} rounded-xl px-4 py-2.5 mb-3 text-left flex items-center gap-3`}>
                 <span className="material-symbols-outlined text-[22px]">{selectedService.icon}</span>
                 <div>
@@ -416,18 +547,26 @@ export default function MobileScanView() {
                 </div>
               </div>
 
-              <div className="bg-[#fefce8] border border-[#fde68a] rounded-xl px-3.5 py-2.5 text-xs text-[#78350f] text-left mb-3 leading-relaxed">
-                📢 Surveillez le <strong>grand écran public</strong> du hall : votre numéro <strong>{ticket.numero}</strong> et votre rang y sont affichés en temps réel.
-              </div>
+              {/* INFO BOX VEUILLEZ PATIENTER */}
+              {!isCalled && !isCompleted && (
+                <div className="bg-[#fefce8] border border-[#fde68a] rounded-xl px-3.5 py-3 text-xs text-[#78350f] text-left mb-3 leading-relaxed">
+                  <div className="font-bold mb-1 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[18px]">info</span>
+                    <span>VEUILLEZ PATIENTER</span>
+                  </div>
+                  Le guichet exact sera indiqué dès que votre ticket sera appelé par un agent. Surveillez cette page ou le grand écran public.
+                </div>
+              )}
 
+              {/* DETAILS GRID */}
               <div className="grid grid-cols-2 gap-2.5 text-left text-xs bg-[#f9fafb] rounded-xl p-3 border border-[#e5e7eb]">
                 <div>
-                  <p className="text-[#9ca3af] font-semibold uppercase tracking-wider mb-0.5">Rang file</p>
-                  <p className="text-[#b45309] font-black text-sm">#{ticket.rang || 1}</p>
+                  <p className="text-[#9ca3af] font-semibold uppercase tracking-wider mb-0.5">Position file</p>
+                  <p className="text-[#b45309] font-black text-sm">#{ticket.position ?? 1}</p>
                 </div>
                 <div>
-                  <p className="text-[#9ca3af] font-semibold uppercase tracking-wider mb-0.5">Affectation</p>
-                  <p className="text-[#00204d] font-bold">{ticket.guichet_nom || `Guichet ${ticket.guichet}`}</p>
+                  <p className="text-[#9ca3af] font-semibold uppercase tracking-wider mb-0.5">Personnes avant</p>
+                  <p className="text-[#00204d] font-bold">{ticket.personnes_avant ?? 0}</p>
                 </div>
                 <div>
                   <p className="text-[#9ca3af] font-semibold uppercase tracking-wider mb-0.5">Filière</p>
@@ -435,7 +574,9 @@ export default function MobileScanView() {
                 </div>
                 <div>
                   <p className="text-[#9ca3af] font-semibold uppercase tracking-wider mb-0.5">Statut</p>
-                  <p className="text-[#16a34a] font-bold">En attente</p>
+                  <p className={`font-bold ${isCalled ? "text-emerald-600" : isCompleted ? "text-gray-500" : "text-amber-600"}`}>
+                    {ticket.statut || "WAITING"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -459,7 +600,7 @@ export default function MobileScanView() {
           </button>
 
           <p className="text-center text-[10px] text-[#9ca3af]">
-            UIR Scolarité · Ticket #{ticket.numero} · Le même numéro vous suit lors des transferts (Paiement & Numérique)
+            UIR Scolarité · Ticket #{ticket.numero} · Le même numéro vous suit en cas de réorientation (Paiement & Numérique)
           </p>
         </div>
       )}

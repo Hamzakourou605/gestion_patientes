@@ -190,7 +190,10 @@ def guichet_le_moins_charge(service=None, pole=None):
 
 
 def serialize_ticket(t):
-    g_info = get_guichet_meta(t.get("guichet"))
+    if not t:
+        return None
+    g_num = t.get("guichet")
+    g_info = get_guichet_meta(g_num) if g_num else {}
     date_c = t.get("date_creation")
     if isinstance(date_c, datetime):
         date_str = date_c.isoformat()
@@ -199,32 +202,76 @@ def serialize_ticket(t):
     else:
         date_str = datetime.utcnow().isoformat()
 
+    statut = t.get("statut", "WAITING")
+    # Harmonisation des statuts
+    if statut == "en_attente":
+        statut = "WAITING"
+    elif statut == "en_cours":
+        statut = "IN_PROGRESS"
+    elif statut == "termine":
+        statut = "COMPLETED"
+
     return {
         "id": str(t["_id"]),
         "numero": t["numero"],
-        "type": t["type"],
-        "type_label": TYPES.get(t["type"], t["type"]),
-        "service": t["service"],
-        "service_label": SERVICES.get(t["service"], t["service"]),
-        "guichet": t.get("guichet"),
-        "guichet_nom": g_info.get("nom", f"Guichet {t.get('guichet')}"),
-        "pole": g_info.get("pole", "autre"),
-        "statut": t["statut"],
+        "type": t.get("type", "bachelier"),
+        "type_label": TYPES.get(t.get("type"), t.get("type", "Bachelier")),
+        "service": t.get("service"),
+        "service_label": SERVICES.get(t.get("service"), t.get("service")),
+        "guichet": g_num,
+        "guichet_nom": g_info.get("nom") if g_num else "Non attribué (En attente)",
+        "pole": g_info.get("pole") if g_num else SERVICE_TO_POLE.get(t.get("service"), "inscription"),
+        "statut": statut,
         "date_creation": date_str,
+        "called_at": t.get("called_at").isoformat() if isinstance(t.get("called_at"), datetime) else t.get("called_at"),
     }
 
 
 def serialize_guichet(g):
     g_info = get_guichet_meta(g.get("numero"))
+    etat = g.get("etat", "DISPONIBLE")
+    if g.get("ticket_en_cours") and etat == "DISPONIBLE":
+        etat = "EN_COURS"
+
     return {
         "numero": g["numero"],
         "nom": g.get("nom", g_info.get("nom", f"Guichet {g['numero']}")),
         "pole": g.get("pole", g_info.get("pole", "inscription")),
-        "actif": g.get("actif", True),
+        "etat": etat,
+        "actif": etat != "ABSENT",
+        "ticket_en_cours": g.get("ticket_en_cours"),
     }
 
 
-def ajouter_historique(ticket_id, action, guichet, service=None):
+def calculer_position_ticket(t):
+    """
+    Calcule la position dynamique réelle d'un ticket dans la file :
+    - Nombre de personnes en attente créées avant lui dans le même pôle
+    - + 1 si lui-même est en attente
+    """
+    statut = t.get("statut", "WAITING")
+    if statut in ("IN_PROGRESS", "en_cours", "CALLED"):
+        return 1, 0
+    if statut in ("COMPLETED", "termine", "CANCELLED"):
+        return 0, 0
+
+    pole = SERVICE_TO_POLE.get(t.get("service"), "inscription")
+    services_du_pole = [s for s, p in SERVICE_TO_POLE.items() if p == pole]
+
+    # Nombre de tickets WAITING créés strictement avant lui
+    nb_avant = tickets_col.count_documents({
+        "service": {"$in": services_du_pole},
+        "statut": {"$in": ["WAITING", "en_attente"]},
+        "date_creation": {"$lt": t["date_creation"]}
+    })
+
+    position = nb_avant + 1
+    personnes_avant = nb_avant
+
+    return position, personnes_avant
+
+
+def ajouter_historique(ticket_id, action, guichet=None, service=None):
     tickets_col.update_one(
         {"_id": ticket_id},
         {
@@ -241,7 +288,7 @@ def ajouter_historique(ticket_id, action, guichet, service=None):
 
 
 # ---------------------------------------------------------------------------
-# Authentification (comptes guichets)
+# Authentification & Gestion des Guichets
 # ---------------------------------------------------------------------------
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -277,7 +324,7 @@ def changer_mot_de_passe():
 
 
 # ---------------------------------------------------------------------------
-# Scan / création de ticket
+# Scan / Création & Suivi du Ticket
 # ---------------------------------------------------------------------------
 
 @app.route("/api/health")
@@ -296,31 +343,36 @@ def services():
 
 @app.route("/api/tickets", methods=["POST"])
 def creer_ticket():
-    """Crée un ticket après le scan : {"type": "master"|"bachelier", "service": "..."}"""
+    """
+    Crée un ticket après le scan :
+    RÈGLE CENTRALE : guichet = None au départ !
+    Le ticket entre dans la file globale de son service. Aucun guichet n'est attribué.
+    """
     data = request.get_json(force=True) or {}
-    type_ = data.get("type")
+    type_ = data.get("type", "bachelier")
     service = data.get("service")
 
     if type_ not in TYPES:
-        return jsonify({"erreur": "type invalide (master|bachelier)"}), 400
+        type_ = "bachelier"
     if service not in SERVICES:
         return jsonify({"erreur": "service invalide"}), 400
 
     init_guichets()
-    guichet_choisi = guichet_le_moins_charge(service=service)
     numero = prochain_numero(type_)
 
     ticket = {
         "numero": numero,
         "type": type_,
         "service": service,
-        "guichet": guichet_choisi,
-        "statut": "en_attente",
+        "guichet": None,  # <- FILE GLOBALE : Aucun guichet attribué immédiatement !
+        "statut": "WAITING",
         "date_creation": datetime.utcnow(),
+        "called_at": None,
+        "completed_at": None,
         "historique": [
             {
                 "action": "creation",
-                "guichet": guichet_choisi,
+                "guichet": None,
                 "service": service,
                 "horodatage": datetime.utcnow(),
             }
@@ -329,27 +381,45 @@ def creer_ticket():
     result = tickets_col.insert_one(ticket)
     ticket["_id"] = result.inserted_id
 
-    # Rangs dans la file :
-    # 1. Rang global parmi tous les tickets en attente
-    rang_global = tickets_col.count_documents(
-        {"statut": "en_attente", "date_creation": {"$lte": ticket["date_creation"]}}
-    )
-    # 2. Position spécifique sur ce guichet
-    position_guichet = tickets_col.count_documents(
-        {"guichet": guichet_choisi, "statut": "en_attente", "date_creation": {"$lte": ticket["date_creation"]}}
-    )
-
+    pos, avant = calculer_position_ticket(ticket)
     reponse = serialize_ticket(ticket)
-    reponse["position"] = position_guichet
-    reponse["rang"] = rang_global
-    reponse["rang_pole"] = position_guichet
+    reponse["position"] = pos
+    reponse["personnes_avant"] = avant
+    reponse["rang"] = pos
     return jsonify(reponse), 201
+
+
+@app.route("/api/tickets/<identifiant>", methods=["GET"])
+def obtenir_ticket(identifiant):
+    """
+    Récupère l'état et la position dynamique d'un ticket.
+    Permet au smartphone de l'utilisateur de se synchroniser en direct :
+    - Avant appel : guichet = null, position = X, personnes_avant = X-1
+    - Après appel : guichet = 2, statut = IN_PROGRESS, message = 'VOTRE TOUR !'
+    """
+    t = tickets_col.find_one({"numero": identifiant})
+    if not t:
+        try:
+            from bson import ObjectId
+            t = tickets_col.find_one({"_id": ObjectId(identifiant)})
+        except Exception:
+            pass
+
+    if not t:
+        return jsonify({"erreur": "ticket introuvable"}), 404
+
+    rep = serialize_ticket(t)
+    pos, avant = calculer_position_ticket(t)
+    rep["position"] = pos
+    rep["personnes_avant"] = avant
+    rep["rang"] = pos
+    return jsonify(rep)
 
 
 @app.route("/api/tickets", methods=["GET"])
 def lister_tickets():
     query = {}
-    for champ in ("type", "statut"):
+    for champ in ("type", "statut", "service"):
         val = request.args.get(champ)
         if val:
             query[champ] = val
@@ -362,37 +432,50 @@ def lister_tickets():
 
 
 # ---------------------------------------------------------------------------
-# Vue des guichets (file propre à chaque guichet + file globale)
+# Gestion des Guichets (États, Appel Suivant, Pause, Absence)
 # ---------------------------------------------------------------------------
 
 @app.route("/api/guichets")
 def lister_guichets():
-    """Vue complète des 16 guichets organisés par pôle."""
+    """Vue complète des 16 guichets avec leur état réel et leur file de pôle."""
     init_guichets()
     resultat = []
     for g in guichets_col.find().sort("numero", 1):
+        g_meta = get_guichet_meta(g["numero"])
         ticket_en_cours = None
         if g.get("ticket_en_cours"):
             t = tickets_col.find_one({"_id": g["ticket_en_cours"]})
             if t:
                 ticket_en_cours = serialize_ticket(t)
 
+        pole = g.get("pole", g_meta["pole"])
+        services_du_pole = [s for s, p in SERVICE_TO_POLE.items() if p == pole]
+
+        # File d'attente globale des tickets WAITING de ce pôle
         file_attente = list(
-            tickets_col.find({"guichet": g["numero"], "statut": "en_attente"}).sort("date_creation", 1)
+            tickets_col.find({
+                "service": {"$in": services_du_pole},
+                "statut": {"$in": ["WAITING", "en_attente"]}
+            }).sort("date_creation", 1)
         )
         serialized_queue = []
         for idx, item in enumerate(file_attente):
             st = serialize_ticket(item)
-            st["rang_guichet"] = idx + 1
+            st["rang"] = idx + 1
+            st["personnes_avant"] = idx
             serialized_queue.append(st)
 
-        g_meta = get_guichet_meta(g["numero"])
+        etat = g.get("etat", "DISPONIBLE")
+        if ticket_en_cours and etat == "DISPONIBLE":
+            etat = "EN_COURS"
+
         resultat.append(
             {
                 "numero": g["numero"],
                 "nom": g.get("nom", g_meta["nom"]),
-                "pole": g.get("pole", g_meta["pole"]),
-                "actif": g.get("actif", True),
+                "pole": pole,
+                "etat": etat,
+                "actif": etat != "ABSENT",
                 "ticket_en_cours": ticket_en_cours,
                 "file_attente": serialized_queue,
             }
@@ -402,37 +485,142 @@ def lister_guichets():
 
 @app.route("/api/guichets/<int:numero>/suivant", methods=["POST"])
 def client_suivant(numero):
-    """Appelle le prochain ticket de LA FILE DE CE GUICHET.
-    Refusé si un client est déjà en cours de traitement à ce guichet."""
+    """
+    APPELER LE SUIVANT :
+    Le guichet décide explicitement de prendre le prochain ticket.
+    Sélection ATOMIQUE du plus ancien ticket WAITING de son pôle.
+    Aucune double attribution possible entre guichets simultanés.
+    """
+    init_guichets()
     g = guichets_col.find_one({"numero": numero})
     if not g:
         return jsonify({"erreur": "guichet introuvable"}), 404
+
+    etat = g.get("etat", "DISPONIBLE")
+    if etat == "PAUSE":
+        return jsonify({"erreur": "Ce guichet est EN PAUSE. Veuillez reprendre le service avant d'appeler."}), 400
+    if etat == "ABSENT":
+        return jsonify({"erreur": "Ce guichet est marqué ABSENT. Veuillez l'activer avant d'appeler."}), 400
     if g.get("ticket_en_cours"):
-        return jsonify({"erreur": "un client est déjà en cours, terminez-le d'abord"}), 400
+        return jsonify({"erreur": "Un candidat est déjà en cours de traitement. Terminez-le d'abord."}), 400
 
-    suivant = tickets_col.find_one(
-        {"guichet": numero, "statut": "en_attente"}, sort=[("date_creation", 1)]
+    pole = g.get("pole", get_guichet_meta(numero)["pole"])
+    services_eligibles = [s for s, p in SERVICE_TO_POLE.items() if p == pole]
+
+    # Attribution atomique avec find_one_and_update
+    suivant = tickets_col.find_one_and_update(
+        {
+            "statut": {"$in": ["WAITING", "en_attente"]},
+            "service": {"$in": services_eligibles},
+        },
+        {
+            "$set": {
+                "statut": "IN_PROGRESS",
+                "guichet": numero,
+                "called_at": datetime.utcnow(),
+            },
+            "$push": {
+                "historique": {
+                    "action": "appel",
+                    "guichet": numero,
+                    "service": pole,
+                    "horodatage": datetime.utcnow(),
+                }
+            }
+        },
+        sort=[("date_creation", 1)],
+        return_document=ReturnDocument.AFTER
     )
+
     if not suivant:
-        return jsonify({"message": "aucun client en attente", "ticket_en_cours": None})
+        guichets_col.update_one({"numero": numero}, {"$set": {"etat": "DISPONIBLE", "ticket_en_cours": None}})
+        return jsonify({"message": "Aucun candidat en attente pour ce service.", "ticket": None, "ticket_en_cours": None})
 
-    tickets_col.update_one({"_id": suivant["_id"]}, {"$set": {"statut": "en_cours"}})
-    guichets_col.update_one({"numero": numero}, {"$set": {"ticket_en_cours": suivant["_id"]}})
-    ajouter_historique(suivant["_id"], "appel", numero)
+    guichets_col.update_one(
+        {"numero": numero},
+        {"$set": {"etat": "EN_COURS", "ticket_en_cours": suivant["_id"]}}
+    )
 
-    suivant["statut"] = "en_cours"
-    return jsonify({"ticket_en_cours": serialize_ticket(suivant), "ticket": serialize_ticket(suivant)})
+    ticket_ser = serialize_ticket(suivant)
+    return jsonify({
+        "ok": True,
+        "ticket": ticket_ser,
+        "ticket_en_cours": ticket_ser,
+    })
+
+
+@app.route("/api/guichets/<int:numero>/pause", methods=["POST"])
+def guichet_pause(numero):
+    """Met le guichet en pause : ne peut plus appeler le suivant."""
+    guichets_col.update_one({"numero": numero}, {"$set": {"etat": "PAUSE"}})
+    return jsonify({"ok": True, "etat": "PAUSE", "numero": numero})
+
+
+@app.route("/api/guichets/<int:numero>/reprendre", methods=["POST"])
+@app.route("/api/guichets/<int:numero>/resume", methods=["POST"])
+def guichet_reprendre(numero):
+    """Sort de la pause et redevient DISPONIBLE (ou EN_COURS si ticket actif)."""
+    g = guichets_col.find_one({"numero": numero})
+    ticket_actif = False
+    if g and g.get("ticket_en_cours"):
+        t = tickets_col.find_one({"_id": g["ticket_en_cours"], "statut": {"$in": ["IN_PROGRESS", "en_cours"]}})
+        if t:
+            ticket_actif = True
+        else:
+            guichets_col.update_one({"numero": numero}, {"$set": {"ticket_en_cours": None}})
+
+    nouvel_etat = "EN_COURS" if ticket_actif else "DISPONIBLE"
+    guichets_col.update_one({"numero": numero}, {"$set": {"etat": nouvel_etat}})
+    return jsonify({"ok": True, "etat": nouvel_etat, "numero": numero})
+
+
+@app.route("/api/guichets/<int:numero>/absent", methods=["POST"])
+def guichet_absent(numero):
+    """Marque le guichet comme absent (fermé temporairement)."""
+    guichets_col.update_one({"numero": numero}, {"$set": {"etat": "ABSENT"}})
+    return jsonify({"ok": True, "etat": "ABSENT", "numero": numero})
+
+
+@app.route("/api/guichets/<int:numero>/activer", methods=["POST"])
+@app.route("/api/guichets/<int:numero>/activate", methods=["POST"])
+def guichet_activer(numero):
+    """Réactive un guichet qui était absent."""
+    guichets_col.update_one({"numero": numero}, {"$set": {"etat": "DISPONIBLE"}})
+    return jsonify({"ok": True, "etat": "DISPONIBLE", "numero": numero})
+
+
+@app.route("/api/guichets/<int:numero>/next", methods=["POST"])
+def guichet_next(numero):
+    return client_suivant(numero)
+
+
+@app.route("/api/tickets/<string:ticket_id>/complete", methods=["POST"])
+def ticket_complete(ticket_id):
+    query = {"$or": [{"numero": ticket_id}]}
+    if ObjectId.is_valid(ticket_id):
+        query["$or"].append({"_id": ObjectId(ticket_id)})
+    t = tickets_col.find_one(query)
+    if not t:
+        return jsonify({"erreur": "ticket introuvable"}), 404
+    tickets_col.update_one(
+        {"_id": t["_id"]},
+        {"$set": {"statut": "COMPLETED", "completed_at": datetime.utcnow()}}
+    )
+    if t.get("guichet"):
+        guichets_col.update_one(
+            {"numero": t["guichet"]},
+            {"$set": {"ticket_en_cours": None, "etat": "DISPONIBLE"}}
+        )
+    return jsonify({"ok": True, "statut": "COMPLETED"})
 
 
 @app.route("/api/guichets/<int:numero>/terminer", methods=["POST"])
 def terminer(numero):
-    """Clôture ou réorientation du client en cours.
-    Le MÊME numéro suit l'étudiant tout au long de son parcours !
-    
-    Actions possibles :
-    - termine            -> Fin définitive de la visite.
-    - avp_paiement       -> Réaffecté au guichet paiement le moins chargé (Caisses 7 à 14).
-    - service_numerique  -> Réaffecté au poste numérique le moins chargé (Postes 15 & 16, Dernière étape).
+    """
+    Clôture ou réorientation du client en cours.
+    - termine: status = COMPLETED, guichet redevient DISPONIBLE.
+    - avp_paiement: MÊME numéro envoyé dans la file Paiement (guichet = null).
+    - service_numerique: MÊME numéro envoyé dans la file Numérique (guichet = null).
     """
     data = request.get_json(force=True) or {}
     action = data.get("action")
@@ -446,77 +634,99 @@ def terminer(numero):
     ticket_id = g["ticket_en_cours"]
 
     if action == "termine":
-        tickets_col.update_one({"_id": ticket_id}, {"$set": {"statut": "termine"}})
+        tickets_col.update_one(
+            {"_id": ticket_id},
+            {
+                "$set": {
+                    "statut": "COMPLETED",
+                    "completed_at": datetime.utcnow(),
+                }
+            }
+        )
         ajouter_historique(ticket_id, "termine", numero)
-        guichets_col.update_one({"numero": numero}, {"$set": {"ticket_en_cours": None}})
-        return jsonify({"message": "visite terminée"})
+        guichets_col.update_one(
+            {"numero": numero},
+            {"$set": {"ticket_en_cours": None, "etat": "DISPONIBLE"}}
+        )
+        return jsonify({"message": "visite terminée", "statut": "COMPLETED"})
 
-    # Redirection : Le MÊME numéro repart vers le nouveau service dans le pôle approprié
-    guichets_col.update_one({"numero": numero}, {"$set": {"ticket_en_cours": None}})
+    # Transfert : Le MÊME numéro repart dans la file globale du nouveau pôle avec guichet = None !
+    guichets_col.update_one(
+        {"numero": numero},
+        {"$set": {"ticket_en_cours": None, "etat": "DISPONIBLE"}}
+    )
     ajouter_historique(ticket_id, "redirection", numero, service=action)
 
-    nouveau_guichet = guichet_le_moins_charge(service=action)
     tickets_col.update_one(
         {"_id": ticket_id},
         {
             "$set": {
-                "statut": "en_attente",
+                "statut": "WAITING",
                 "service": action,
-                "guichet": nouveau_guichet,
+                "guichet": None,  # Repart en attente d'un guichet libre dans ce pôle
                 "date_creation": datetime.utcnow(),
+                "called_at": None,
             }
         },
     )
     ticket = tickets_col.find_one({"_id": ticket_id})
-    return jsonify({"message": "ticket redirigé", "ticket": serialize_ticket(ticket)})
+    return jsonify({"message": "ticket redirigé vers file d'attente", "ticket": serialize_ticket(ticket)})
 
 
 @app.route("/api/affichage")
 def affichage():
-    """Données complètes pour l'écran public du hall :
-    - En cours à chaque guichet
-    - File d'attente avec RANG (Rang 1, 2, 3...) pour chaque candidat
-    - Regroupement par Pôle (Inscription, Concours, Paiement 8 caisses, Numérique 2 postes)
+    """
+    Données complètes pour le grand écran public :
+    - ÉTAT DE TOUS LES GUICHETS (ACTIF, DISPONIBLE, EN PAUSE, ABSENT)
+    - Tickets actuellement appelés
+    - Prochains tickets en attente dans la file avec leur RANG exact
+    - Compteurs globaux
     """
     init_guichets()
-    
-    tous_en_cours = list(tickets_col.find({"statut": "en_cours"}).sort("date_creation", 1))
-    tous_en_attente = list(tickets_col.find({"statut": "en_attente"}).sort("date_creation", 1))
 
-    serialized_en_cours = [serialize_ticket(t) for t in tous_en_cours]
-    
-    serialized_attente = []
-    for idx, t in enumerate(tous_en_attente):
+    # 1. Tous les 16 guichets avec leur état réel
+    guichets_list = []
+    for g in guichets_col.find().sort("numero", 1):
+        g_meta = get_guichet_meta(g["numero"])
+        t_en_cours = None
+        if g.get("ticket_en_cours"):
+            t_obj = tickets_col.find_one({"_id": g["ticket_en_cours"]})
+            if t_obj:
+                t_en_cours = serialize_ticket(t_obj)
+
+        etat = g.get("etat", "DISPONIBLE")
+        if t_en_cours and etat == "DISPONIBLE":
+            etat = "EN_COURS"
+
+        guichets_list.append({
+            "numero": g["numero"],
+            "nom": g.get("nom", g_meta["nom"]),
+            "pole": g.get("pole", g_meta["pole"]),
+            "etat": etat,
+            "ticket_en_cours": t_en_cours,
+        })
+
+    # 2. Tickets appelés / en cours (triés par heure d'appel la plus récente)
+    appeles = [g["ticket_en_cours"] for g in guichets_list if g["ticket_en_cours"]]
+    appeles = sorted(appeles, key=lambda x: x.get("called_at") or x.get("date_creation") or "", reverse=True)
+
+    # 3. File d'attente globale (statut WAITING uniquement)
+    attente_cursor = list(tickets_col.find({"statut": {"$in": ["WAITING", "en_attente"]}}).sort("date_creation", 1))
+    prochains_tickets = []
+    for idx, t in enumerate(attente_cursor):
         st = serialize_ticket(t)
         st["rang"] = idx + 1
-        serialized_attente.append(st)
-
-    # Regroupement par statut (pour compatibilité)
-    par_statut = {}
-    for type_ in TYPES:
-        par_statut[type_] = {
-            "label": TYPES[type_],
-            "en_cours": [t for t in serialized_en_cours if t.get("type") == type_],
-            "en_attente": [t for t in serialized_attente if t.get("type") == type_],
-        }
-
-    # Regroupement par pôle
-    par_pole = {}
-    for pole_key, meta in POLES_META.items():
-        par_pole[pole_key] = {
-            "nom": meta["nom"],
-            "guichets": meta["guichets"],
-            "en_cours": [t for t in serialized_en_cours if t.get("pole") == pole_key],
-            "en_attente": [t for t in serialized_attente if t.get("pole") == pole_key],
-        }
+        st["personnes_avant"] = idx
+        prochains_tickets.append(st)
 
     return jsonify({
-        "en_cours": serialized_en_cours,
-        "attente": serialized_attente,
-        "par_statut": par_statut,
-        "par_pole": par_pole,
-        "total_attente": len(serialized_attente),
-        "total_en_cours": len(serialized_en_cours),
+        "guichets": guichets_list,
+        "derniers_appeles": appeles,
+        "en_cours": appeles,
+        "attente": prochains_tickets,
+        "prochains_tickets": prochains_tickets[:16],
+        "total_attente": len(prochains_tickets),
+        "total_en_cours": len(appeles),
     })
 
 

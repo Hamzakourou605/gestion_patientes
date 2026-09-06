@@ -71,3 +71,44 @@ def test_services_catalog():
 def test_nb_guichets_configuration():
     """Verify 16 counters are configured across the 4 departments."""
     assert NB_GUICHETS == 16
+
+
+def test_ticket_creation_in_global_queue_without_guichet(client):
+    """Verify ticket is created in WAITING status with NO assigned guichet initially."""
+    res = client.post("/api/tickets", json={
+        "type": "master",
+        "service": "inscription_master"
+    })
+    assert res.status_code == 201
+    data = res.get_json()
+    assert data["numero"].startswith("M-")
+    assert data["statut"] == "WAITING"
+    assert data["guichet"] is None
+    assert data["position"] >= 1
+    assert data["personnes_avant"] >= 0
+
+
+def test_guichet_states_pause_and_resume(client):
+    """Verify guichet pause, resume, absent and activate endpoints."""
+    from app import guichets_col
+    guichets_col.update_one({"numero": 4}, {"$set": {"ticket_en_cours": None, "etat": "DISPONIBLE"}})
+
+    # Put guichet 4 on pause
+    res_pause = client.post("/api/guichets/4/pause")
+    assert res_pause.status_code == 200
+    assert res_pause.get_json()["etat"] == "PAUSE"
+
+    # Resume guichet 4
+    res_resume = client.post("/api/guichets/4/resume")
+    assert res_resume.status_code == 200
+    assert res_resume.get_json()["etat"] == "DISPONIBLE"
+
+    # Put guichet 4 absent
+    res_absent = client.post("/api/guichets/4/absent")
+    assert res_absent.status_code == 200
+    assert res_absent.get_json()["etat"] == "ABSENT"
+
+    # Activate guichet 4
+    res_act = client.post("/api/guichets/4/activate")
+    assert res_act.status_code == 200
+    assert res_act.get_json()["etat"] == "DISPONIBLE"
