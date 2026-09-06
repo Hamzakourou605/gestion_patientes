@@ -1,489 +1,416 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import QRCode from "qrcode";
-import { getAffichage, getConfig, setConfigTunnel } from "../api";
+import React, { useState, useEffect, useRef } from "react";
+import { creerTicket, getServices, getConfig } from "../api";
 
-const MAX_TIME = 30;
-const CIRCUMFERENCE = 263.89;
+const SERVICE_ICONS = {
+  inscription: "📋",
+  paiement: "💳",
+  numerique: "💻",
+  concours: "🏆",
+};
 
-function generateToken() {
-  return "#TK-" + Math.floor(1000 + Math.random() * 9000);
-}
+const SERVICE_DESCRIPTIONS = {
+  inscription: "Inscription, dossiers, rendez-vous",
+  paiement: "Paiement des frais de scolarité",
+  numerique: "Activation compte, services digitaux",
+  concours: "Résultats, dossiers concours",
+};
 
-// Fallback URL built from current browser location
-function fallbackMobileUrl() {
-  const h = window.location.hostname;
-  const p = window.location.port || "3001";
-  return `http://${h}:${p}/#/mobile`;
+function QRCodeDisplay({ ticketNumero, qrData }) {
+  // Simple QR-like visual (URL displayed)
+  return (
+    <div style={{
+      background: "white",
+      borderRadius: "12px",
+      padding: "12px",
+      display: "inline-block",
+      margin: "0 auto",
+    }}>
+      <img
+        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrData)}`}
+        alt="QR Code"
+        width="160"
+        height="160"
+        style={{ display: "block", borderRadius: "8px" }}
+        onError={(e) => { e.target.style.display = "none"; }}
+      />
+    </div>
+  );
 }
 
 export default function Kiosk() {
-  const canvasRef = useRef(null);
+  const [services, setServices] = useState({});
+  const [step, setStep] = useState("select"); // select | ticket
+  const [selectedService, setSelectedService] = useState(null);
+  const [ticket, setTicket] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [mobileUrl, setMobileUrl] = useState("");
+  const [time, setTime] = useState(new Date());
+  const timerRef = useRef(null);
+  const autoResetRef = useRef(null);
 
-  // Timer & dynamic token
-  const [timeLeft, setTimeLeft] = useState(MAX_TIME);
-  const [tokenCode, setTokenCode] = useState(generateToken);
-  const [scanCount, setScanCount] = useState(0);
-
-  // Public URL configuration for 3G / 5G / All networks
-  const [showUrlModal, setShowUrlModal] = useState(false);
-  const [customUrlInput, setCustomUrlInput] = useState("");
-
-  // Mobile URL — fetched from backend (tunnel URL prioritized) or localStorage
-  const [mobileUrl, setMobileUrl] = useState(() => {
-    return localStorage.getItem("custom_mobile_url") || fallbackMobileUrl();
-  });
-
-  // Live stats from backend
-  const [stats, setStats] = useState({
-    totalAttente: 0,
-    prochainMaster: "M-????",
-    prochainBachelier: "B-????",
-  });
-
-  // Fetch config from backend to get tunnel or LAN URL
   useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const savedCustom = localStorage.getItem("custom_mobile_url");
-        if (savedCustom) {
-          setMobileUrl(savedCustom);
-          return;
-        }
-        const cfg = await getConfig();
-        const url = cfg.mobile_tunnel || cfg.mobile_lan || fallbackMobileUrl();
-        setMobileUrl(url);
-      } catch (_) { }
-    };
-    fetchConfig();
-    const iv = setInterval(fetchConfig, 15000);
-    return () => clearInterval(iv);
+    getServices()
+      .then(setServices)
+      .catch(() => {});
+    getConfig()
+      .then((cfg) => {
+        const base = cfg.tunnel_url || cfg.frontend_lan || window.location.origin;
+        setMobileUrl(base + "/#/mobile");
+      })
+      .catch(() => {});
+
+    const clockInterval = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(clockInterval);
   }, []);
 
-  // Draw QR code on canvas whenever URL changes
-  const drawQR = useCallback(async (url) => {
-    if (!canvasRef.current) return;
-    try {
-      await QRCode.toCanvas(canvasRef.current, url, {
-        width: 320,
-        margin: 2,
-        color: { dark: "#00204d", light: "#ffffff" },
-        errorCorrectionLevel: "M",
-      });
-    } catch (err) {
-      console.error("QR generation error:", err);
+  useEffect(() => {
+    if (step === "ticket") {
+      // Auto reset after 30s
+      autoResetRef.current = setTimeout(() => handleReset(), 30000);
     }
-  }, []);
+    return () => clearTimeout(autoResetRef.current);
+  }, [step]);
 
-  useEffect(() => {
-    drawQR(mobileUrl);
-  }, [drawQR, mobileUrl]);
+  const handleSelectService = (key) => {
+    setSelectedService(key);
+  };
 
-
-  // Token countdown
-  const rotateToken = useCallback(() => {
-    setTokenCode(generateToken());
-    setTimeLeft(MAX_TIME);
-    setScanCount((c) => c + 1);
-    drawQR(mobileUrl);
-  }, [drawQR, mobileUrl]);
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) { rotateToken(); return MAX_TIME; }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [rotateToken]);
-
-  // Fetch live stats
-  const refreshStats = useCallback(async () => {
+  const handleConfirm = async () => {
+    if (!selectedService) return;
+    setLoading(true);
+    setError("");
     try {
-      const data = await getAffichage();
-      const mq = data?.par_statut?.master || [];
-      const bq = data?.par_statut?.bachelier || [];
-      setStats({
-        totalAttente: data?.total_attente ?? 0,
-        prochainMaster: mq[0]?.numero ?? "—",
-        prochainBachelier: bq[0]?.numero ?? "—",
-      });
-    } catch (_) { }
-  }, []);
+      const data = await creerTicket(selectedService);
+      setTicket(data);
+      setStep("ticket");
+      // Play a success beep
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [523, 659, 784].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.12);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.12 + 0.2);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + i * 0.12);
+          osc.stop(ctx.currentTime + i * 0.12 + 0.25);
+        });
+      } catch {}
+    } catch (err) {
+      setError(err.response?.data?.erreur || "Erreur lors de la création du ticket");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  useEffect(() => {
-    refreshStats();
-    const iv = setInterval(refreshStats, 4000);
-    return () => clearInterval(iv);
-  }, [refreshStats]);
+  const handleReset = () => {
+    setStep("select");
+    setSelectedService(null);
+    setTicket(null);
+    setError("");
+    clearTimeout(autoResetRef.current);
+  };
 
-  const progressRatio = timeLeft / MAX_TIME;
-  const strokeOffset = CIRCUMFERENCE - progressRatio * CIRCUMFERENCE;
-  const validityPct = Math.round(progressRatio * 100);
-  const formattedTime = `00:${timeLeft < 10 ? "0" + timeLeft : timeLeft}`;
+  const formatTime = (d) =>
+    d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const formatDate = (d) =>
+    d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  const svc = ticket ? (services[ticket.service] || {}) : null;
+  const svcColor = svc?.color || "#6366f1";
 
   return (
-    <div className="w-full pt-20 bg-background min-h-screen">
-      {/* Ambient glows */}
-      <div className="absolute -top-32 left-1/2 -translate-x-1/2 w-[720px] h-[380px] bg-primary-fixed blur-[130px] opacity-40 rounded-full pointer-events-none -z-10" />
-      <div className="absolute top-80 right-0 w-96 h-96 bg-secondary-fixed blur-[140px] opacity-30 rounded-full pointer-events-none -z-10" />
+    <div style={{
+      minHeight: "calc(100vh - 64px)",
+      background: "linear-gradient(135deg, #0a0e1a 0%, #0f172a 50%, #0a0e1a 100%)",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      padding: "24px 16px",
+      position: "relative",
+      overflow: "hidden",
+    }}>
+      {/* Background decoration */}
+      <div style={{
+        position: "absolute", top: "-20%", left: "-10%",
+        width: "500px", height: "500px",
+        background: "radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }} />
+      <div style={{
+        position: "absolute", bottom: "-20%", right: "-10%",
+        width: "500px", height: "500px",
+        background: "radial-gradient(circle, rgba(16,185,129,0.06) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }} />
 
-      <div className="max-w-[90rem] mx-auto px-gutter-mobile md:px-gutter-desktop pt-space-md pb-space-3xl flex flex-col gap-space-xl">
-
-        {/* ── Top strip ─────────────────────────────────────────── */}
-        <div className="flex flex-col lg:flex-row items-start lg:items-end justify-between gap-space-md">
-          <div className="flex flex-col gap-space-xs max-w-2xl">
-            <div className="inline-flex items-center gap-space-xs px-space-sm py-space-2xs rounded-full bg-primary-fixed text-on-primary-fixed w-fit shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
-              <span className="font-label-sm text-label-sm uppercase tracking-wider font-bold">
-                Borne d'Enregistrement Rapide — UIR
-              </span>
-            </div>
-            <h1 className="font-display text-headline-lg md:text-display text-on-surface tracking-tight leading-tight">
-              Scannez pour obtenir{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-container to-secondary">
-                votre ticket UIR
-              </span>
-            </h1>
-            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl">
-              Pointez l'appareil photo de votre smartphone vers le QR code.
-              Le code se régénère toutes les 30 secondes pour sécuriser chaque ticket.
-            </p>
-            <div className="flex items-center gap-2 flex-wrap mt-1">
-              <span className="font-label-sm text-label-sm text-secondary uppercase tracking-wider font-bold">
-                URL de scan :
-              </span>
-              <code className="lowercase tracking-normal bg-surface-container px-2 py-0.5 rounded font-mono text-xs text-on-surface">
-                {mobileUrl}
-              </code>
-              <button
-                onClick={() => {
-                  setCustomUrlInput(mobileUrl);
-                  setShowUrlModal(true);
-                }}
-                className="text-xs font-bold text-primary hover:underline flex items-center gap-1 bg-primary-fixed px-2 py-0.5 rounded-full"
-              >
-                <span className="material-symbols-outlined text-[14px]">public</span>
-                Changer URL (3G/5G/Render)
-              </button>
-              <a
-                href="#/mobile"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-semibold text-secondary hover:underline flex items-center gap-0.5"
-              >
-                <span className="material-symbols-outlined text-[14px]">open_in_new</span>
-                Tester sur ce PC
-              </a>
-            </div>
-          </div>
-
-          {/* Metric counters */}
-          <div className="flex items-center gap-space-sm bg-surface-container-low p-space-xs rounded-xl shadow-sm">
-            <div className="px-space-md py-space-xs bg-surface-container-lowest rounded-lg shadow-sm text-left">
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase block font-semibold">Flux actuel</span>
-              <span className="font-headline-sm text-headline-sm text-primary flex items-center gap-1 font-bold">
-                <span className="material-symbols-outlined text-secondary text-[20px]">groups</span>
-                {stats.totalAttente} en file
-              </span>
-            </div>
-            <div className="px-space-md py-space-xs bg-surface-container-lowest rounded-lg shadow-sm text-left">
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase block font-semibold">Postes Déployés</span>
-              <span className="font-headline-sm text-headline-sm text-tertiary-container flex items-center gap-1 font-bold">
-                <span className="material-symbols-outlined text-[20px]">desk</span>
-                16 Postes (4 Pôles)
-              </span>
-            </div>
-          </div>
+      {/* Clock */}
+      <div style={{
+        textAlign: "center", marginBottom: "24px",
+        position: "relative", zIndex: 1,
+      }}>
+        <div style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: "clamp(2rem, 5vw, 3.5rem)",
+          fontWeight: 700,
+          color: "#f1f5f9",
+          letterSpacing: "0.05em",
+        }}>
+          {formatTime(time)}
         </div>
-
-        {/* Modal Configuration URL Publique */}
-        {showUrlModal && (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl text-left">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-lg text-[#00204d] flex items-center gap-2">
-                  <span className="material-symbols-outlined text-blue-600">settings_ethernet</span>
-                  Configurer l'URL de Scan
-                </h3>
-                <button
-                  onClick={() => setShowUrlModal(false)}
-                  className="text-slate-400 hover:text-slate-600 font-bold"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <p className="text-xs text-slate-600 mb-3 leading-relaxed">
-                Pour que les étudiants puissent scanner depuis <strong>n'importe quel réseau (3G, 4G, 5G ou Wi-Fi externe)</strong>, entrez votre URL publique (ex: l'URL Render ou votre tunnel).
-              </p>
-
-              <div className="space-y-3 mb-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    URL Publique (ex: https://gestion-patientes.onrender.com)
-                  </label>
-                  <input
-                    type="url"
-                    value={customUrlInput}
-                    onChange={(e) => setCustomUrlInput(e.target.value)}
-                    placeholder="https://votre-app.onrender.com"
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-sm font-mono"
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      const url = fallbackMobileUrl();
-                      setCustomUrlInput(url);
-                    }}
-                    className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg font-semibold"
-                  >
-                    Réseau Local (Wi-Fi)
-                  </button>
-                  <button
-                    onClick={() => {
-                      localStorage.removeItem("custom_mobile_url");
-                      window.location.reload();
-                    }}
-                    className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg font-semibold"
-                  >
-                    Auto-détection
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => setShowUrlModal(false)}
-                  className="px-4 py-2 rounded-lg text-slate-600 font-semibold text-sm hover:bg-slate-100"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={async () => {
-                    let finalUrl = customUrlInput.trim();
-                    if (finalUrl && !finalUrl.includes("/#/mobile")) {
-                      finalUrl = `${finalUrl.replace(/\/$/, "")}/#/mobile`;
-                    }
-                    localStorage.setItem("custom_mobile_url", finalUrl);
-                    setMobileUrl(finalUrl);
-                    drawQR(finalUrl);
-                    try {
-                      await setConfigTunnel(finalUrl.replace("/#/mobile", ""));
-                    } catch (_) {}
-                    setShowUrlModal(false);
-                  }}
-                  className="px-5 py-2 bg-[#00204d] text-white rounded-lg font-bold text-sm shadow hover:bg-blue-900"
-                >
-                  Enregistrer &amp; Actualiser QR
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Main showcase ─────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-space-xl items-stretch">
-
-          {/* LEFT ─ QR terminal (7 cols on lg+) */}
-          <div className="lg:col-span-7 bg-surface-container-lowest rounded-2xl p-space-lg md:p-space-xl shadow-[0_20px_60px_-15px_rgba(0,32,77,0.18)] relative overflow-hidden flex flex-col justify-between">
-            {/* gradient top bar */}
-            <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-primary-container via-secondary-container to-tertiary-fixed rounded-t-2xl" />
-            {/* corner glow */}
-            <div className="absolute -top-16 -right-16 w-48 h-48 bg-secondary-container/20 rounded-full blur-2xl pointer-events-none" />
-
-            {/* Card header */}
-            <div className="flex items-center justify-between gap-space-sm mb-space-lg">
-              <span className="px-space-sm py-space-2xs bg-secondary-fixed text-on-secondary-fixed rounded-full font-label-md text-label-md flex items-center gap-1.5 font-semibold shadow-sm">
-                <span className="w-2 h-2 rounded-full bg-secondary animate-pulse" />
-                Actif · Prêt à scanner
-              </span>
-              <div className="flex items-center gap-space-2xs bg-surface-container-low px-space-sm py-space-2xs rounded-lg text-on-surface-variant font-label-md text-label-md">
-                <span className="material-symbols-outlined text-[16px] text-primary">verified</span>
-                <span>Jeton : <strong className="text-on-surface font-semibold">{tokenCode}</strong></span>
-              </div>
-            </div>
-
-            {/* ── Giant QR code ── */}
-            <div className="flex flex-col md:flex-row items-center justify-center gap-space-xl my-space-md">
-              <div className="relative group">
-                {/* Corner reticles */}
-                <span className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg pointer-events-none z-10" />
-                <span className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg pointer-events-none z-10" />
-                <span className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg pointer-events-none z-10" />
-                <span className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg pointer-events-none z-10" />
-
-                {/* Laser scan line */}
-                <div className="absolute inset-x-4 h-1 bg-gradient-to-r from-transparent via-secondary-container to-transparent blur-[1px] opacity-90 animate-laser pointer-events-none z-10" />
-
-                {/* White bg frame around canvas */}
-                <div className="bg-white p-3 rounded-2xl shadow-[0_12px_40px_rgba(0,32,77,0.15)] border border-surface-container-high/30">
-                  <canvas
-                    ref={canvasRef}
-                    className="block rounded-lg"
-                    style={{ width: 280, height: 280 }}
-                    width={320}
-                    height={320}
-                  />
-                </div>
-
-                {/* Center UIR badge */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-14 h-14 bg-white rounded-xl shadow-lg border border-surface-container-high/40 flex items-center justify-center overflow-hidden">
-                    <img
-                      src="/logo.png"
-                      alt="UIR Logo"
-                      className="w-11 h-11 object-contain"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Countdown & next tickets */}
-              <div className="flex flex-col items-center md:items-start gap-space-md text-center md:text-left">
-                <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider font-semibold">
-                  Renouvellement dans
-                </span>
-
-                <div className="flex items-center gap-space-md">
-                  {/* Donut */}
-                  <div className="relative w-24 h-24">
-                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                      <circle cx="50" cy="50" fill="none" r="42" stroke="currentColor" strokeWidth="8" className="text-surface-container-high" />
-                      <circle
-                        cx="50" cy="50" fill="none" r="42" stroke="currentColor"
-                        strokeWidth="8" strokeLinecap="round"
-                        strokeDasharray={CIRCUMFERENCE}
-                        strokeDashoffset={strokeOffset}
-                        className="text-primary transition-all duration-1000 ease-linear"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="font-headline-sm text-headline-sm text-on-surface font-bold">{formattedTime}</span>
-                      <span className="text-[10px] text-on-surface-variant uppercase tracking-widest font-semibold">SEC</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <span className="font-label-sm text-label-sm text-on-surface-variant">Prochain estimé :</span>
-                    <div className="flex items-center gap-space-xs">
-                      <span className="px-space-xs py-0.5 rounded bg-primary-container text-on-primary font-headline-sm text-headline-sm tracking-tight shadow-sm">
-                        {stats.prochainMaster}
-                      </span>
-                      <span className="text-outline-variant font-bold">/</span>
-                      <span className="px-space-xs py-0.5 rounded bg-secondary-container text-on-secondary-fixed font-headline-sm text-headline-sm tracking-tight shadow-sm">
-                        {stats.prochainBachelier}
-                      </span>
-                    </div>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">Master &amp; Bachelier</span>
-                  </div>
-                </div>
-
-                {/* Validity bar */}
-                <div className="w-full flex flex-col gap-1 pt-space-xs min-w-[200px]">
-                  <div className="flex items-center justify-between text-xs text-on-surface-variant font-label-sm">
-                    <span>Validité du jeton</span>
-                    <span className="text-primary font-bold">{validityPct}%</span>
-                  </div>
-                  <div className="w-full h-2.5 bg-surface-container-high rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary via-primary-container to-secondary-container rounded-full transition-all duration-1000 ease-linear"
-                      style={{ width: `${validityPct}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom instruction bar */}
-            <div className="mt-space-md flex items-center gap-space-sm p-space-sm bg-surface-container-low rounded-xl">
-              <div className="w-10 h-10 rounded-lg bg-surface-container-lowest text-primary flex items-center justify-center shrink-0 shadow-sm">
-                <span className="material-symbols-outlined text-[24px]">center_focus_strong</span>
-              </div>
-              <p className="font-label-lg text-label-lg text-on-surface text-left">
-                Pointez la caméra de votre smartphone sans application.
-                <span className="font-body-sm text-body-sm text-on-surface-variant block">
-                  Fonctionne avec iOS &amp; Android. Restez sur le même réseau Wi-Fi que le campus.
-                </span>
-              </p>
-            </div>
-          </div>
-
-          {/* RIGHT ─ How-to + live status (5 cols on lg+) */}
-          <div className="lg:col-span-5 flex flex-col gap-space-md">
-
-            {/* Steps */}
-            <div className="p-space-lg bg-surface-container-lowest rounded-2xl shadow-sm flex flex-col gap-space-sm">
-              <div className="flex items-center justify-between">
-                <span className="font-headline-sm text-headline-sm text-on-surface font-bold">Comment ça marche ?</span>
-                <span className="px-space-xs py-1 rounded bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm uppercase font-bold">Instantané</span>
-              </div>
-
-              {[
-                { step: 1, color: "bg-primary", icon: "photo_camera", text: "Scannez le QR code", sub: "Aucune app nécessaire — caméra standard iOS/Android." },
-                { step: 2, color: "bg-secondary", icon: "badge", text: "Choisissez votre service", sub: "Rendez-vous · AVP/Master · Bachelier · Autres." },
-                { step: 3, color: "bg-tertiary-container", icon: "picture_as_pdf", text: "Recevez votre ticket PDF", sub: "Un ticket UIR avec numéro &amp; guichet, prêt à imprimer." },
-              ].map(({ step, color, icon, text, sub }) => (
-                <div key={step} className="p-space-md bg-surface-container-low rounded-xl flex items-start gap-space-md hover:bg-surface-container-high transition-colors">
-                  <div className={`w-10 h-10 rounded-xl ${color} text-on-primary font-bold font-headline-sm text-headline-sm flex items-center justify-center shrink-0 shadow-sm`}>
-                    {step}
-                  </div>
-                  <div className="flex flex-col gap-0.5 min-w-0 text-left">
-                    <span className="font-label-lg text-label-lg text-on-surface font-semibold">{text}</span>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant leading-snug" dangerouslySetInnerHTML={{ __html: sub }} />
-                  </div>
-                  <span className="material-symbols-outlined text-[22px] ml-auto shrink-0 text-primary">{icon}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Live status card */}
-            <div className="relative rounded-2xl overflow-hidden bg-primary text-on-primary p-space-lg shadow-md flex flex-col justify-between min-h-[160px]">
-              <div className="absolute -right-10 -bottom-10 w-40 h-40 rounded-full bg-secondary/15 blur-xl pointer-events-none" />
-              <div className="flex items-center justify-between z-10">
-                <div className="text-left">
-                  <span className="font-label-sm text-label-sm uppercase tracking-wider text-secondary-fixed-dim font-semibold block">
-                    UIR Campus Central — Hall A
-                  </span>
-                  <span className="font-headline-sm text-headline-sm font-bold block">Hall des Inscriptions</span>
-                </div>
-                <div className="px-space-sm py-1 bg-surface-container-lowest/20 backdrop-blur-md rounded-full text-xs font-semibold flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-tertiary-fixed animate-ping" />
-                  Direct
-                </div>
-              </div>
-              <div className="flex items-center justify-between text-on-primary-container z-10 pt-space-md font-label-caption text-xs">
-                <span className="flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[16px] text-secondary-fixed">wifi</span>
-                  Réseau : UIR_Campus_WiFi
-                </span>
-                <span>Scans session : {scanCount}</span>
-              </div>
-            </div>
-
-            {/* Accessibility row */}
-            <div className="w-full bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex gap-space-sm">
-              <div className="flex-1 flex items-center gap-space-sm bg-surface-container-low rounded-lg px-space-md py-space-sm">
-                <span className="material-symbols-outlined text-[22px] text-primary">accessible</span>
-                <div className="text-left">
-                  <span className="font-label-lg text-label-lg text-on-surface font-bold block">Accès PMR Prioritaire</span>
-                  <span className="font-label-sm text-label-sm text-on-surface-variant">Signalez-vous au guichet 1</span>
-                </div>
-              </div>
-              <div className="flex-1 flex items-center gap-space-sm bg-surface-container-low rounded-lg px-space-md py-space-sm">
-                <span className="material-symbols-outlined text-[22px] text-secondary">support_agent</span>
-                <div className="text-left">
-                  <span className="font-label-lg text-label-lg text-on-surface font-bold block">Besoin d'aide ?</span>
-                  <span className="font-label-sm text-label-sm text-on-surface-variant">Poste 4200 — Accueil</span>
-                </div>
-              </div>
-            </div>
-
-          </div>
+        <div style={{ color: "#64748b", fontSize: "14px", marginTop: "4px", textTransform: "capitalize" }}>
+          {formatDate(time)}
         </div>
       </div>
+
+      {/* ─── STEP: SELECT ─── */}
+      {step === "select" && (
+        <div style={{ width: "100%", maxWidth: "700px", position: "relative", zIndex: 1 }} className="animate-fade-in">
+          <div style={{ textAlign: "center", marginBottom: "32px" }}>
+            <h1 style={{ fontSize: "clamp(1.5rem, 4vw, 2.2rem)", fontWeight: 800, color: "#f1f5f9" }}>
+              Bienvenue à <span style={{ color: "#818cf8" }}>l'UIR</span>
+            </h1>
+            <p style={{ color: "#94a3b8", marginTop: "8px", fontSize: "16px" }}>
+              Sélectionnez votre service pour obtenir un ticket
+            </p>
+          </div>
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, 1fr)",
+            gap: "16px",
+          }}>
+            {Object.entries(services).map(([key, cfg]) => {
+              const isSelected = selectedService === key;
+              const color = cfg.color || "#6366f1";
+              return (
+                <button
+                  key={key}
+                  id={`service-btn-${key}`}
+                  onClick={() => handleSelectService(key)}
+                  style={{
+                    background: isSelected
+                      ? `linear-gradient(135deg, ${color}22, ${color}11)`
+                      : "rgba(30,42,58,0.8)",
+                    border: `2px solid ${isSelected ? color : "rgba(255,255,255,0.06)"}`,
+                    borderRadius: "16px",
+                    padding: "28px 20px",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "12px",
+                    transform: isSelected ? "scale(1.02)" : "scale(1)",
+                    boxShadow: isSelected ? `0 8px 30px ${color}30` : "none",
+                    position: "relative",
+                    overflow: "hidden",
+                  }}
+                >
+                  {isSelected && (
+                    <div style={{
+                      position: "absolute", top: "12px", right: "12px",
+                      background: color,
+                      borderRadius: "50%",
+                      width: "22px", height: "22px",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "12px",
+                    }}>✓</div>
+                  )}
+                  <div style={{ fontSize: "3rem" }}>{SERVICE_ICONS[key] || "📋"}</div>
+                  <div>
+                    <div style={{
+                      fontSize: "18px", fontWeight: 700, color: isSelected ? color : "#f1f5f9",
+                      marginBottom: "4px",
+                    }}>
+                      {cfg.nom}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                      {SERVICE_DESCRIPTIONS[key] || cfg.nom_complet}
+                    </div>
+                    <div style={{
+                      marginTop: "8px",
+                      display: "inline-block",
+                      background: `${color}22`,
+                      color: color,
+                      borderRadius: "999px",
+                      padding: "2px 10px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                    }}>
+                      {cfg.nb_postes} {cfg.label_poste}{cfg.nb_postes > 1 ? "s" : ""}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {error && (
+            <div style={{
+              marginTop: "16px",
+              padding: "12px 16px",
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: "10px",
+              color: "#f87171",
+              fontSize: "14px",
+              textAlign: "center",
+            }}>
+              ⚠️ {error}
+            </div>
+          )}
+
+          <button
+            id="confirm-service-btn"
+            onClick={handleConfirm}
+            disabled={!selectedService || loading}
+            className="btn btn-primary btn-lg"
+            style={{ width: "100%", marginTop: "24px", fontSize: "17px", padding: "16px" }}
+          >
+            {loading ? (
+              <>⏳ Création du ticket...</>
+            ) : selectedService ? (
+              <>🎟️ Obtenir mon ticket — {services[selectedService]?.nom}</>
+            ) : (
+              <>Sélectionnez un service</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* ─── STEP: TICKET ─── */}
+      {step === "ticket" && ticket && (
+        <div style={{
+          width: "100%", maxWidth: "420px",
+          position: "relative", zIndex: 1,
+          display: "flex", flexDirection: "column", alignItems: "center", gap: "20px",
+        }} className="animate-scale-in">
+          {/* Ticket Card */}
+          <div style={{
+            width: "100%",
+            background: "rgba(30,42,58,0.9)",
+            border: `2px solid ${svcColor}`,
+            borderRadius: "24px",
+            padding: "32px 28px",
+            textAlign: "center",
+            boxShadow: `0 20px 60px ${svcColor}30`,
+            position: "relative",
+            overflow: "hidden",
+          }}>
+            {/* Top gradient bar */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: "4px",
+              background: `linear-gradient(90deg, ${svcColor}, #8b5cf6)`,
+            }} />
+
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              background: `${svcColor}22`,
+              border: `1px solid ${svcColor}44`,
+              borderRadius: "999px",
+              padding: "6px 16px",
+              marginBottom: "20px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: svcColor,
+            }}>
+              {SERVICE_ICONS[ticket.service]} {svc?.nom || ticket.service}
+            </div>
+
+            <div style={{ color: "#94a3b8", fontSize: "13px", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+              Votre numéro
+            </div>
+            <div style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: "clamp(3rem, 12vw, 5rem)",
+              fontWeight: 900,
+              color: svcColor,
+              letterSpacing: "0.05em",
+              lineHeight: 1,
+              marginBottom: "20px",
+              textShadow: `0 0 40px ${svcColor}60`,
+            }}>
+              {ticket.numero}
+            </div>
+
+            {/* Position */}
+            {ticket.rang !== undefined && (
+              <div style={{
+                background: "rgba(255,255,255,0.04)",
+                borderRadius: "12px",
+                padding: "14px",
+                marginBottom: "20px",
+              }}>
+                {ticket.rang === 1 && ticket.statut === "WAITING" ? (
+                  <div style={{ color: "#10b981", fontWeight: 700, fontSize: "16px" }}>
+                    🎯 Vous êtes le prochain !
+                  </div>
+                ) : ticket.statut === "IN_PROGRESS" ? (
+                  <div style={{ color: svcColor, fontWeight: 700, fontSize: "16px" }}>
+                    📢 Rendez-vous au {ticket.station_label}
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ color: "#f1f5f9", fontWeight: 700, fontSize: "22px" }}>
+                      Position {ticket.rang}
+                    </div>
+                    <div style={{ color: "#64748b", fontSize: "13px", marginTop: "4px" }}>
+                      {ticket.personnes_avant} personne{ticket.personnes_avant > 1 ? "s" : ""} avant vous
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* QR code */}
+            <div style={{ marginBottom: "16px" }}>
+              <QRCodeDisplay
+                ticketNumero={ticket.numero}
+                qrData={`${mobileUrl}?ticket=${ticket.numero}`}
+              />
+              <div style={{ color: "#64748b", fontSize: "11px", marginTop: "8px" }}>
+                Scannez pour suivre votre position en temps réel
+              </div>
+            </div>
+          </div>
+
+          {/* Instructions */}
+          <div style={{
+            background: "rgba(30,42,58,0.6)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: "12px",
+            padding: "16px",
+            fontSize: "13px",
+            color: "#94a3b8",
+            textAlign: "center",
+            lineHeight: 1.6,
+          }}>
+            ℹ️ Gardez ce ticket. Votre numéro sera appelé sur l'écran et annoncé.
+          </div>
+
+          <div style={{ display: "flex", gap: "12px", width: "100%" }}>
+            <button
+              id="new-ticket-btn"
+              onClick={handleReset}
+              className="btn btn-ghost"
+              style={{ flex: 1 }}
+            >
+              ← Nouveau ticket
+            </button>
+          </div>
+
+          <div style={{ color: "#475569", fontSize: "12px" }}>
+            Réinitialisation automatique dans 30 secondes
+          </div>
+        </div>
+      )}
     </div>
   );
 }
